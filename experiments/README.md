@@ -38,7 +38,7 @@ openevolve:
   max_tokens_field: max_tokens  # the API's field for a whole response incl. reasoning
 ```
 
-`max_tokens_field` names the request field that caps a whole response, reasoning included (DeepSeek: `max_tokens`, DashScope: `max_completion_tokens`); mycode chooses it per provider, our OpenEvolve client sends what the file says. For a model missing from the mycode catalog, set `context_window` and `max_tokens` in the `agentic_evolve` block too. Before a formal launch, check the effective values: the first lines of a run's `run.log` (ours) and `run.json` (OpenEvolve).
+`max_tokens_field` names the request field that caps a whole response, reasoning included (DeepSeek: `max_tokens`, DashScope: `max_completion_tokens`); mycode chooses it per provider, our OpenEvolve client sends what the file says. `reasoning_effort` is optional in both blocks and must be the same value in both; omitted means the provider default. For a model missing from the mycode catalog, set `context_window` and `max_tokens` in the `agentic_evolve` block too. Before a formal launch, check the effective values: the first lines of a run's `run.log` (ours) and `run.json` (OpenEvolve).
 
 ## Run
 

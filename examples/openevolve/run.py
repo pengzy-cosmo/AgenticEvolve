@@ -14,6 +14,7 @@ OpenEvolve's OpenAI-compatible client:
     api_key_env: DEEPSEEK_API_KEY
     max_tokens: 384000              # the model's output limit, same value as our side
     max_tokens_field: max_tokens    # the API's field for a whole response incl. reasoning
+    reasoning_effort: high          # optional; omitted means the provider default
 
 Mirrors openevolve-run.py's assembly (load_config -> OpenEvolve -> run) and
 adds: the task description as the system message, our client (output-limit
@@ -78,6 +79,7 @@ def main() -> None:
     config.llm.api_base = llm["api_base"]
     config.llm.api_key = os.environ[llm["api_key_env"]]
     config.llm.max_tokens = llm["max_tokens"]
+    config.llm.reasoning_effort = llm.get("reasoning_effort")
     config.llm.rebuild_models()
     config.llm.update_model_params(
         {"system_message": config.prompt.system_message, "init_client": make_client},
@@ -106,6 +108,7 @@ def main() -> None:
                     "api_base": model.api_base,
                     "temperature": model.temperature,
                     llm["max_tokens_field"]: model.max_tokens,
+                    "reasoning_effort": model.reasoning_effort,
                     "timeout": model.timeout,
                     "retries": model.retries,
                     "seed": model.random_seed,
