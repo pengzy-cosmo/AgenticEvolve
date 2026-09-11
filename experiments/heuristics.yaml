@@ -30,9 +30,6 @@ entries:
     system: openevolve
     task: examples/dynamic_job_shop
     iterations: 180
-  cp-full:
-    system: agentic_evolve
-    config: examples/circle_packing/config.yaml
   cp-no-analysis:
     system: agentic_evolve
     config: examples/circle_packing/config.yaml
