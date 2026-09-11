@@ -1,0 +1,31 @@
+task:
+  initial_program: initial_program.py
+  evaluator: evaluator.py
+  data: data
+  description: |
+    Symbolic regression: find the mathematical structure behind observed
+    data with three inputs (x0, x1, x2) and one output. Evolve
+    predict(x, params) in program.py, a numpy expression mapping x of shape
+    (n, 3) to shape (n,), plus PARAMETER_BOUNDS, one (low, high) pair per
+    parameter. Do not hand-tune constants: the evaluator fits params within
+    the bounds by deterministic multi-start least squares before scoring,
+    so put model structure in the expression and leave constants to params.
+
+    The observed samples are in data/observations.csv (columns x0, x1, x2,
+    y; 120 points, each input in [-2, 2]).
+
+    The formal evaluation fits params on the observed samples and scores
+    hidden samples. Metrics: interpolation_score and extrapolation_score
+    are 1 / (1 + NMSE) on hidden samples inside and outside the observed
+    input box; combined_score = 0.5 * interpolation + 0.5 * extrapolation;
+    complexity counts the operations in predict and the functions it calls,
+    plus the number of parameters, lower is simpler.
+
+llm:
+  model: deepseek-flash
+
+map_elites:
+  features: [complexity]
+
+executor:
+  timeout: 60

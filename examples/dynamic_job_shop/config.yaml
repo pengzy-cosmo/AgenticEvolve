@@ -1,0 +1,57 @@
+task:
+  initial_program: initial_program.py
+  evaluator: evaluator.py
+  description: |
+    Improve priority(queue, now) in program.py: a dispatching rule for a
+    dynamic job shop. 10 machines; jobs arrive by a Poisson process, each
+    with 2-14 operations on a random route (revisits allowed, consecutive
+    operations on different machines) and integer processing times uniform
+    in [1, 99]; due date = arrival + a * total processing time. Scheduling
+    is non-delay: whenever a machine is free with two or more waiting
+    operations the harness calls priority(queue, now) and starts the
+    highest-scoring one (ties: earliest queued). Started operations run to
+    completion; jobs that have not arrived are not visible.
+
+    Interface: priority must be a top-level function of program.py. now is
+    the current simulation time, in the units of processing times. queue
+    has attributes that are equal-length numpy float arrays with one entry
+    per waiting operation: pt (this operation's processing time), next_pt
+    (processing time of the job's next operation, 0 if this is the last),
+    remaining_work (processing time of this and all later operations),
+    remaining_ops (including this one), total_work (processing time of all
+    operations of the job), arrival (job arrival time), due (job due
+    date), queued_since (when the operation joined this queue), winq (work
+    waiting at the job's next machine plus the remainder of the operation
+    in progress there, 0 if this is the last); plus the scalar
+    queue.utilization of the scenario. Return a numpy array of the same
+    length as queue.pt with one score per operation. Scores may be +-inf;
+    a NaN score or a wrong shape fails the evaluation. The program module
+    is reloaded for every simulation run, so state persists only within
+    one run.
+
+    The formal evaluation simulates 5 scenarios, (utilization u, due date
+    factor a) in {(0.85, 2), (0.85, 4), (0.95, 2), (0.95, 4), (0.95, 6)},
+    each on 10 fixed hidden arrival streams; the mean interarrival time is
+    40 / u. Each run scores the mean tardiness, max(completion - due, 0),
+    of jobs 501-2500 by arrival order (the first 500 are warm-up; arrivals
+    continue until the scored jobs finish). The whole evaluation (50 runs;
+    the simulations alone take about 20 seconds) must finish within 150
+    seconds. Metrics:
+    - tardiness_ratio: per scenario, mean tardiness over the 10 streams
+      divided by that of the published rule R1 on
+      the same streams; geometric mean of the 5 ratios. Zero tardiness is
+      floored at 1e-4.
+    - combined_score: 1 / tardiness_ratio, the fitness; 1.0 matches R1.
+    - complexity: operation nodes reachable from priority, / 40, capped at
+      1.
+    - spt_divergence: fraction of decisions not picking a shortest waiting
+      operation (SPT's choice).
+
+llm:
+  model: deepseek-flash
+
+map_elites:
+  features: [complexity, spt_divergence]
+
+executor:
+  timeout: 150

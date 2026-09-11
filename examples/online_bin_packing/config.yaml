@@ -1,0 +1,36 @@
+task:
+  initial_program: initial_program.py
+  evaluator: evaluator.py
+  description: |
+    Improve priority(item, bins) in program.py: online one-dimensional bin
+    packing. Items arrive one at a time and each is placed irrevocably;
+    future items are not visible. For each item the harness collects the
+    feasible bins (remaining capacity >= item, always including unused
+    bins at full capacity), calls priority(item, bins), and places the
+    item into the bin with the highest score (the first on ties).
+
+    Interface: priority must be a top-level function of program.py. item
+    is the item size (int); bins is a numpy int array of the feasible
+    bins' remaining capacities. Return a numpy array of the same length as
+    bins with one score per bin. Scores may be +-inf; a NaN score or a
+    wrong shape fails the evaluation.
+
+    The formal evaluation packs 100 fixed hidden sequences of 120 items,
+    integer sizes uniform in [20, 100], bin capacity 150, and must finish
+    within 60 seconds. Metrics:
+    - mean_excess: bins used in excess of the Martello-Toth L2 lower bound
+      of the offline optimum, (total used - total L2) / total L2.
+    - combined_score: 1 / (1 + mean_excess), the fitness.
+    - complexity: operation nodes reachable from priority, / 40, capped at
+      1.
+    - bf_divergence: fraction of placements into a bin looser than the
+      tightest feasible one (Best Fit's choice), / 0.2, capped at 1.
+
+llm:
+  model: deepseek-flash
+
+map_elites:
+  features: [complexity, bf_divergence]
+
+executor:
+  timeout: 60

@@ -1,0 +1,26 @@
+task:
+  initial_program: initial_program.py
+  evaluator: evaluator.py
+  description: |
+    Improve pack(items, capacity) in program.py: offline one-dimensional bin
+    packing. items is a list of positive integer sizes and capacity is the
+    integer bin capacity (100 in this task). Return a list with one bin id
+    (int) per item; a bin's total size must not exceed capacity. Use as few
+    bins as possible across diverse item distributions.
+
+    The formal evaluation packs fixed unseen instances at several sizes
+    from four distributions: uniform sizes in [1, 99], sizes near half
+    capacity, sizes near a third of capacity, and complementary pairs
+    summing to capacity. Per instance, quality is lower_bound / used_bins
+    (1.0 = a provably perfect packing; invalid packings count as 0).
+    Returned aggregates: combined_score (mean quality), reliability,
+    speed_score.
+
+llm:
+  model: deepseek-flash
+
+map_elites:
+  features: [speed_score]
+
+executor:
+  timeout: 60
