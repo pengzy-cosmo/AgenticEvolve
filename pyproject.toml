@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentic-evolve"
+name = "python-agentic-evolve"
 version = "0.1.0"
-description = "Agentic LLM evolution: persistent-session islands over per-island MAP-Elites."
+description = "AgenticEvolve: LLM program evolution by persistent agentic sessions."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

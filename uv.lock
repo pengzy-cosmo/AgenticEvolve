@@ -11,45 +11,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agentic-evolve"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "mycode-sdk" },
-    { name = "numpy" },
-    { name = "pyyaml" },
-    { name = "scipy" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-    { name = "ty" },
-]
-openevolve = [
-    { name = "openevolve" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mycode-sdk", specifier = ">=0.16.0" },
-    { name = "numpy", specifier = ">=2.5.1" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "scipy", specifier = ">=1.18.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.25" },
-    { name = "ruff", specifier = ">=0.16.1" },
-    { name = "ty", specifier = ">=0.0.65" },
-]
-openevolve = [{ name = "openevolve", specifier = "==0.3.2" }]
-
-[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -936,6 +897,45 @@ sdist = { url = "https://files.pythonhosted.org/packages/43/7c/d36d04db312ecf429
 wheels = [
     { url = "https://files.pythonhosted.org/packages/03/e2/08a497ef684b88559c9cc5f4ad53a37e7b99e727094a86d6ea32536d5d3c/pytest_asyncio-1.4.0-py3-none-any.whl", hash = "sha256:933ca923a23075a87fb7070c0ec272a6848489824d887c85c812670932835aa1", size = 16930, upload-time = "2026-05-26T09:56:02.576Z" },
 ]
+
+[[package]]
+name = "python-agentic-evolve"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "mycode-sdk" },
+    { name = "numpy" },
+    { name = "pyyaml" },
+    { name = "scipy" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+    { name = "ty" },
+]
+openevolve = [
+    { name = "openevolve" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mycode-sdk", specifier = ">=0.16.0" },
+    { name = "numpy", specifier = ">=2.5.1" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "scipy", specifier = ">=1.18.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=0.25" },
+    { name = "ruff", specifier = ">=0.16.1" },
+    { name = "ty", specifier = ">=0.0.65" },
+]
+openevolve = [{ name = "openevolve", specifier = "==0.3.2" }]
 
 [[package]]
 name = "pyyaml"

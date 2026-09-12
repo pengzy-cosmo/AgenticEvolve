@@ -1,4 +1,4 @@
-# agentic-evolve
+# AgenticEvolve
 
 Agentic LLM evolution: each island is one persistent LLM session that evolves a Python program through six controlled tools (`read`, `write`, `edit`, `run_analysis`, `commit`, `read_commit`). The framework owns evaluation, the archive, per-island MAP-Elites, migration, and context compaction; the LLM decides what to change and when to commit.
 
