@@ -15,6 +15,9 @@ llm:
   timeout: 1200
   retries: 2
 
+# Raise the default limit, which rejected most CP candidates before evaluation.
+max_code_length: 100000
+
 prompt:
   suggest_simplification_after_chars: null  # code length is not part of the fitness
 

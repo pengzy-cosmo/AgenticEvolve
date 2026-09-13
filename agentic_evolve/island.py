@@ -332,6 +332,7 @@ class Island:
             max_tokens=llm.max_tokens,
             compact_threshold=0,
             reasoning_effort=llm.reasoning_effort,
+            max_retries=8,  # Allow more retries for transient connection failures.
         )
 
     def _opening_message(self) -> str:
