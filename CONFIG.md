@@ -30,6 +30,9 @@ evolution:
   migration_interval: 3                # every N commits an island receives candidates
   migration_rate: 0.3                  # ... the top fraction of its ring neighbors' elites
   # max_total_tokens: 3000000          # optional hard stop per island on total tokens
+  # max_requests: 333                  # optional hard stop per island on model requests
+                                       # (every response counts); the response that
+                                       # reaches it still runs its tool calls
 
 map_elites:
   features: [complexity, bf_divergence]  # required; metric fields spanning the grid,

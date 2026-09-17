@@ -268,6 +268,29 @@ async def test_commit_budget_stops_a_continuous_tool_loop(run_task):
     assert [record["metrics"]["score"] for record in archive_records(run_dir)] == [1.0, 2.0]
 
 
+async def test_request_budget_lets_the_last_response_finish_its_tools(run_task):
+    """Every model request counts. The response that reaches the limit still
+    runs its tool calls and each result carries the end instruction; one more
+    request is cancelled before its tools run, and the run terminates."""
+    feedbacks = []
+
+    async def scenario(agent, prompt):
+        for score in range(1, 5):
+            yield usage(100)
+            if agent.cancelled:
+                return
+            await agent.call(
+                "write", path="program.py", content=f"SCORE = {score}\nFEATURE = 0.5\n"
+            )
+            feedbacks.append(await agent.call("commit", description=f"score {score}"))
+
+    run_dir = await run_task(scenario, max_commits=10, max_requests=2)
+
+    assert [record["metrics"]["score"] for record in archive_records(run_dir)] == [1.0, 2.0]
+    assert "requests 1/2" in feedbacks[0] and "budget exhausted" not in feedbacks[0]
+    assert "requests 2/2" in feedbacks[1] and "budget exhausted" in feedbacks[1]
+
+
 async def test_token_budget_uses_current_context_before_compaction(run_task):
     async def scenario(agent, prompt):
         yield usage(100)

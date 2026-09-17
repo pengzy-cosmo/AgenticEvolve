@@ -13,11 +13,14 @@ import asyncio
 import logging
 import math
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
+from typing import cast
 
 from mycode import Agent, ToolExecutionResult, ToolSpec, tool
+from mycode.tools import AsyncToolRunner
 
 from agentic_evolve.archive import Archive, Behavior, CommitRecord
 from agentic_evolve.config import Config
@@ -158,6 +161,8 @@ class Island:
         self.analysis = ""
         self.analysis_count = 0
         self.commit_count = 0
+        self.request_count = 0
+        self.requests_exhausted = False
         self.behavior = Behavior()
         self.context_tokens = 0
         self.total_tokens = 0
@@ -192,6 +197,9 @@ class Island:
             ):
                 reason = f"max_total_tokens ({evolution.max_total_tokens}) reached"
                 break
+            if self.requests_exhausted:
+                reason = f"max_requests ({evolution.max_requests}) reached"
+                break
             if self.compact_requested:
                 summary = await self._compact()
                 if (
@@ -200,13 +208,17 @@ class Island:
                 ):
                     reason = f"max_total_tokens ({evolution.max_total_tokens}) reached"
                     break
+                if self.requests_exhausted:
+                    reason = f"max_requests ({evolution.max_requests}) reached"
+                    break
                 prompt = self._compact_message(summary)
 
         logger.info(
-            "island %d: terminated (%s), commits=%d, total_tokens=%d",
+            "island %d: terminated (%s), commits=%d, requests=%d, total_tokens=%d",
             self.id,
             reason,
             self.commit_count,
+            self.request_count,
             self.total_tokens,
         )
 
@@ -228,6 +240,15 @@ class Island:
     def _on_usage(self, context_tokens: int | None) -> None:
         self.behavior.context_tokens = context_tokens
         self.behavior.model_calls += 1
+        self.request_count += 1
+        max_requests = self.cfg.evolution.max_requests
+        if max_requests is not None and self.request_count >= max_requests:
+            # The response that hit the limit runs its tool calls; every tool
+            # result then tells the model to end the turn. A further request is
+            # cancelled before its tool calls run.
+            self.requests_exhausted = True
+            if self.request_count > max_requests:
+                self._cancel_turn(f"max_requests ({max_requests}) exceeded")
         if context_tokens is None:
             return
 
@@ -300,6 +321,10 @@ class Island:
             if event.type == "text":
                 parts.append(str(event.data.get("delta") or ""))
             elif event.type == "usage":
+                self.request_count += 1  # the summary is a model request too
+                max_requests = self.cfg.evolution.max_requests
+                if max_requests is not None and self.request_count >= max_requests:
+                    self.requests_exhausted = True
                 context_tokens = event.data.get("context_tokens")
                 if context_tokens is not None:
                     self.context_tokens = context_tokens
@@ -529,9 +554,22 @@ class Island:
             )
             return record.code
 
-        if max_analyses:
-            return [read, write, edit, run_analysis, commit, read_commit]
-        return [read, write, edit, commit, read_commit]
+        tools = [read, write, edit, run_analysis, commit, read_commit]
+        if not max_analyses:
+            tools.remove(run_analysis)
+        return [self._ending_when_exhausted(spec) for spec in tools]
+
+    def _ending_when_exhausted(self, spec: ToolSpec) -> ToolSpec:
+        """Once the request budget is spent, every tool result ends the turn."""
+        runner = cast(AsyncToolRunner, spec.runner)  # every tool above is an async def
+
+        async def run(ctx, args) -> ToolExecutionResult:
+            result = await runner(ctx, args)
+            if self.requests_exhausted and END_INSTRUCTION not in result.output:
+                result = replace(result, output=f"{result.output}\n\n{END_INSTRUCTION}")
+            return result
+
+        return replace(spec, runner=run)
 
     def _validate_metrics(self, metrics: dict) -> str | None:
         me = self.cfg.map_elites
@@ -594,4 +632,6 @@ class Island:
         line = f"commits {self.commit_count}/{evolution.max_commits}"
         if evolution.max_total_tokens is not None:
             line += f" | total_tokens {self.total_tokens}/{evolution.max_total_tokens}"
+        if evolution.max_requests is not None:
+            line += f" | requests {self.request_count}/{evolution.max_requests}"
         return f"Budget:\n{line}"

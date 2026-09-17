@@ -72,6 +72,7 @@ def run_task(monkeypatch, tmp_path):
         islands: int = 1,
         max_commits: int = 1,
         max_total_tokens: int | None = None,
+        max_requests: int | None = None,
         migration_interval: int = 10,
         migration_rate: float = 1.0,
         max_analyses_per_commit: int = 10,
@@ -107,6 +108,8 @@ def run_task(monkeypatch, tmp_path):
         }
         if max_total_tokens is not None:
             evolution["max_total_tokens"] = max_total_tokens
+        if max_requests is not None:
+            evolution["max_requests"] = max_requests
 
         task = {
             "initial_program": "initial_program.py",
