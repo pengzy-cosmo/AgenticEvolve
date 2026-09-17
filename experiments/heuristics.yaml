@@ -1,6 +1,5 @@
 # Heuristic tasks: the ablation (Full vs No-analysis) and the system
-# comparison against OpenEvolve. Circle packing has a public objective, so
-# analysis equals evaluation there and it enters the system comparison only.
+# comparison against OpenEvolve.
 # agentic_evolve runs 3 islands x 30 commits (the config defaults); OpenEvolve
 # 180 iterations with the 3 islands of its task config. The model comes from
 # the file given to scripts/bench.py --llm.
@@ -29,13 +28,4 @@ entries:
   djss-openevolve:
     system: openevolve
     task: examples/dynamic_job_shop
-    iterations: 180
-  cp-no-analysis:
-    system: agentic_evolve
-    config: examples/circle_packing/config.yaml
-    override:
-      evolution: {max_analyses_per_commit: 0}
-  cp-openevolve:
-    system: openevolve
-    task: examples/circle_packing
     iterations: 180
