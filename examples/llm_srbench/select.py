@@ -3,16 +3,15 @@
 # requires-python = ">=3.12"
 # dependencies = ["h5py", "huggingface_hub", "numpy", "pyarrow", "scipy", "sympy"]
 # ///
-"""Select one LSR-Synth problem per domain from the data and the ground truth.
+"""Select the LSR-Synth problems from the data and the ground truth alone.
 
-Within each domain, in order:
-1. complexity (nodes of the ground truth's expression tree) within the
+A problem is selected when, within its domain:
+1. complexity (nodes of the ground truth's expression tree) is within the
    domain's interquartile range;
-2. informative OOD split: OOD target variance at least 10% of the ID test
-   targets', every OOD input spanning at least 5% of its ID range;
-3. identifiable structure: with any one basis function of the expanded ground
-   truth removed, the refit's train NMSE stays above 1e-3;
-4. the most complex survivor, ties by problem index.
+2. the OOD split is informative: OOD target variance at least 10% of the ID
+   test targets', every OOD input spanning at least 5% of its ID range;
+3. the structure is identifiable: with any one basis function of the expanded
+   ground truth removed, the refit's train NMSE stays above 1e-3.
 
 Usage: uv run examples/llm_srbench/select.py   (minutes: the refits)
 """
@@ -111,8 +110,7 @@ def main():
             )
             if weakest > NECESSARY:
                 survivors.append(p)
-        chosen = survivors[0]
-        print(f"==> {domain}: {chosen.name}   {sp.sstr(truth(chosen))}\n")
+        print(f"==> {domain}: {', '.join(p.name for p in survivors)}\n")
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ class EvolutionConfig:
     migration_rate: float = 0.3
     max_total_tokens: int | None = None
     max_requests: int | None = None
+    max_idle_turns: int | None = None
 
     def __post_init__(self) -> None:
         if self.max_analyses_per_commit < 0:

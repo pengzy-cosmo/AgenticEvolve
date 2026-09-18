@@ -163,6 +163,7 @@ class Island:
         self.commit_count = 0
         self.request_count = 0
         self.requests_exhausted = False
+        self.idle_turns = 0  # consecutive turns without a tool call
         self.behavior = Behavior()
         self.context_tokens = 0
         self.total_tokens = 0
@@ -200,6 +201,9 @@ class Island:
             if self.requests_exhausted:
                 reason = f"max_requests ({evolution.max_requests}) reached"
                 break
+            if evolution.max_idle_turns is not None and self.idle_turns >= evolution.max_idle_turns:
+                reason = f"agent stopped ({self.idle_turns} turns without tool calls)"
+                break
             if self.compact_requested:
                 summary = await self._compact()
                 if (
@@ -224,6 +228,7 @@ class Island:
 
     async def _run_turn(self, prompt: str) -> None:
         self._cancel_requested = False
+        self.idle_turns += 1
         async for event in self.agent.achat(prompt, on_persist=_stamp_timestamp):
             if event.type == "usage":
                 self._on_usage(event.data.get("context_tokens"))
@@ -557,13 +562,15 @@ class Island:
         tools = [read, write, edit, run_analysis, commit, read_commit]
         if not max_analyses:
             tools.remove(run_analysis)
-        return [self._ending_when_exhausted(spec) for spec in tools]
+        return [self._counted(spec) for spec in tools]
 
-    def _ending_when_exhausted(self, spec: ToolSpec) -> ToolSpec:
-        """Once the request budget is spent, every tool result ends the turn."""
+    def _counted(self, spec: ToolSpec) -> ToolSpec:
+        """Every tool call marks the turn as active; once the request budget is
+        spent, every tool result ends the turn."""
         runner = cast(AsyncToolRunner, spec.runner)  # every tool above is an async def
 
         async def run(ctx, args) -> ToolExecutionResult:
+            self.idle_turns = 0
             result = await runner(ctx, args)
             if self.requests_exhausted and END_INSTRUCTION not in result.output:
                 result = replace(result, output=f"{result.output}\n\n{END_INSTRUCTION}")

@@ -33,6 +33,8 @@ evolution:
   # max_requests: 333                  # optional hard stop per island on model requests
                                        # (every response counts); the response that
                                        # reaches it still runs its tool calls
+  # max_idle_turns: 5                  # optional stop per island after this many consecutive
+                                       # turns without a tool call (the model has stopped)
 
 map_elites:
   features: [complexity, bf_divergence]  # required; metric fields spanning the grid,

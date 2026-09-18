@@ -73,6 +73,7 @@ def run_task(monkeypatch, tmp_path):
         max_commits: int = 1,
         max_total_tokens: int | None = None,
         max_requests: int | None = None,
+        max_idle_turns: int | None = None,
         migration_interval: int = 10,
         migration_rate: float = 1.0,
         max_analyses_per_commit: int = 10,
@@ -110,6 +111,8 @@ def run_task(monkeypatch, tmp_path):
             evolution["max_total_tokens"] = max_total_tokens
         if max_requests is not None:
             evolution["max_requests"] = max_requests
+        if max_idle_turns is not None:
+            evolution["max_idle_turns"] = max_idle_turns
 
         task = {
             "initial_program": "initial_program.py",

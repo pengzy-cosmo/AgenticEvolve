@@ -291,6 +291,23 @@ async def test_request_budget_lets_the_last_response_finish_its_tools(run_task):
     assert "requests 2/2" in feedbacks[1] and "budget exhausted" in feedbacks[1]
 
 
+async def test_island_ends_after_consecutive_turns_without_tool_calls(run_task):
+    """A turn with a tool call resets the count; max_idle_turns idle turns end the island."""
+    prompts = []
+
+    async def scenario(agent, prompt):
+        prompts.append(prompt)
+        yield usage(100)
+        if len(prompts) == 3:
+            await agent.call("write", path="program.py", content="SCORE = 1\nFEATURE = 0.5\n")
+            await agent.call("commit", description="the only commit")
+
+    run_dir = await run_task(scenario, max_commits=10, max_idle_turns=5)
+
+    assert len(prompts) == 2 + 1 + 5
+    assert [record["metrics"]["score"] for record in archive_records(run_dir)] == [1.0]
+
+
 async def test_token_budget_uses_current_context_before_compaction(run_task):
     async def scenario(agent, prompt):
         yield usage(100)

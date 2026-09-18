@@ -12,8 +12,7 @@ commit 6fdbe409, cloned to the directory given by --llmsr-repo:
     git -C REPO checkout 6fdbe409b75ea749c0a93c69b6861637d804dec4
 
 The benchmark's search is kept: 10 islands, 2 examples per prompt, 4 samples
-per prompt, 30 s evaluation time limit, the best training score decides the
-final equation. Three things are ours:
+per prompt, 30 s evaluation time limit. Three things are ours:
 - the sample budget, given on the command line;
 - the scoring of samples, by the shared evaluator (trace, size check,
   least-squares fit) in place of the program's own BFGS evaluate(); the
@@ -32,8 +31,9 @@ Usage:
         --seed 1 --llmsr-repo REPO [--runs-dir runs/llmsr]
 
 The run directory receives run.json, usage.jsonl (one record per request),
-best.py (the final equation, importable) and llmsr/ with the searcher's own
-sample logs (samples/samples_<n>.json: function, score, sample order).
+best.py (the searcher's own pick, the best training score) and llmsr/ with
+the sample logs (samples/samples_<n>.json: function, score, sample order)
+from which score.py selects and scores the final equation.
 """
 
 # ruff: noqa: E402

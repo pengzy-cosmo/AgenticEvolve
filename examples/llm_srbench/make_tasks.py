@@ -30,7 +30,7 @@ sys.path.insert(0, str(HERE))
 from dataset import Problem, problems  # noqa: E402
 from expression import MAX_SIZE, RULE  # noqa: E402
 
-BUDGET = {"num_islands": 3, "max_commits": 333, "max_requests": 333}
+BUDGET = {"num_islands": 3, "max_commits": 333, "max_requests": 333, "max_idle_turns": 5}
 
 
 class _Dumper(yaml.SafeDumper):
