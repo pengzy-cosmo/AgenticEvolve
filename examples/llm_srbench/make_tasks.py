@@ -6,7 +6,7 @@
 """Generate one task directory per LSR-Synth problem of LLM-SRBench.
 
 tasks/<name>/ receives config.yaml, initial_program.py (LLM-SR's linear
-skeleton), a copy of evaluator.py, and data/train.csv with the 4000 training
+skeleton), copies of evaluator.py and expression.py, and data/train.csv with the 4000 training
 observations, target column first. The test sets stay in the dataset; score.py
 reads them from there. The generated directories are not tracked.
 
@@ -28,7 +28,7 @@ import yaml
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 from dataset import Problem, problems  # noqa: E402
-from evaluator import MAX_SIZE, RULE  # noqa: E402
+from expression import MAX_SIZE, RULE  # noqa: E402
 
 BUDGET = {"num_islands": 3, "max_commits": 333, "max_requests": 333}
 
@@ -113,7 +113,8 @@ def main():
             fmt="%.17g",  # round-trips the float64 values every method receives
         )
         (task / "initial_program.py").write_text(_initial_program(p))
-        shutil.copy(HERE / "evaluator.py", task / "evaluator.py")
+        for name in ("evaluator.py", "expression.py"):
+            shutil.copy(HERE / name, task / name)
         config = {
             "task": {
                 "initial_program": "initial_program.py",

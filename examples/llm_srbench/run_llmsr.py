@@ -11,27 +11,28 @@ commit 6fdbe409, cloned to the directory given by --llmsr-repo:
     git clone https://github.com/deep-symbolic-mathematics/llm-srbench REPO
     git -C REPO checkout 6fdbe409b75ea749c0a93c69b6861637d804dec4
 
-The benchmark's search is kept (10 islands, 2 examples per prompt, 4 samples
+The benchmark's search is kept: 10 islands, 2 examples per prompt, 4 samples
 per prompt, 30 s evaluation time limit, the best training score decides the
-final equation). Three things are ours. The sample budget is given on the
-command line. Samples are scored by the shared evaluator (trace, size check,
-least-squares fit; see evaluator.py) in place of the program's own BFGS
-evaluate(), and the prompt states the evaluator's rule. The model is called
-through our client, which sends the output limit under the API's field,
-records every response's usage, and hands the search an empty sample after
-the retries are exhausted (an empty sample fails evaluation and is counted);
-the repository's own client caps every response at 1024 tokens, retries
-forever, and records nothing.
+final equation. Three things are ours:
+- the sample budget, given on the command line;
+- the scoring of samples, by the shared evaluator (trace, size check,
+  least-squares fit) in place of the program's own BFGS evaluate(); the
+  prompt states the evaluator's rule;
+- the model client, which sends the output limit under the API's field,
+  records every response's usage, and hands the search an empty sample after
+  the retries are exhausted (an empty sample fails evaluation and is counted).
+  The repository's own client caps every response at 1024 tokens, retries
+  forever and records nothing.
 
 The model file has the OpenEvolve layout (model, api_base, api_key_env,
 max_tokens, max_tokens_field, optional reasoning_effort).
 
 Usage:
-    uv run examples/llm_srbench/run_llmsr.py --problem CRK0 --llm llm.yaml --samples 1000
-        --seed 0 --llmsr-repo REPO [--runs-dir runs/llmsr]
+    uv run examples/llm_srbench/run_llmsr.py --problem CRK21 --llm llm.yaml --samples 1000
+        --seed 1 --llmsr-repo REPO [--runs-dir runs/llmsr]
 
 The run directory receives run.json, usage.jsonl (one record per request),
-best.py (the final equation, importable), and llmsr/ with the searcher's own
+best.py (the final equation, importable) and llmsr/ with the searcher's own
 sample logs (samples/samples_<n>.json: function, score, sample order).
 """
 
@@ -57,30 +58,31 @@ import yaml
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-import evaluator as shared
 from dataset import problems
+from evaluator import fit
+from expression import MAX_SIZE, RULE, check, compile, trace
 
 RETRIES = 8
+INSTRUCTION = (
+    "You are a helpful assistant tasked with discovering mathematical function structures "
+    "for scientific systems. Complete the 'equation' function below, considering the "
+    f"physical meaning and relationships of inputs. {RULE}\n\n"
+)
+SEARCH = {"num_islands": 10, "functions_per_prompt": 2, "samples_per_prompt": 4, "temperature": 1.0}
 
 
 class _NullWriter:
-    """Stands in for torch's SummaryWriter, which the searcher's profiler
-    imports; the tensorboard log is not used."""
+    """Stands in for torch's SummaryWriter, which the searcher's profiler imports."""
 
     def __init__(self, *args, **kwargs):
         pass
 
-    def add_scalar(self, *args, **kwargs):
-        pass
-
-    def add_scalars(self, *args, **kwargs):
-        pass
-
-    def add_text(self, *args, **kwargs):
-        pass
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
 
 
-def _import_llmsr(repo: Path):
+def import_llmsr(repo: Path):
+    """The repository's modules, with torch stubbed out."""
     sys.path.insert(0, str(repo))
     sys.path.insert(0, str(repo / "methods"))
     tensorboard = types.ModuleType("torch.utils.tensorboard")
@@ -95,7 +97,87 @@ def _import_llmsr(repo: Path):
     return SEDTask, config, sampler, evaluator, LLMSRSearcher
 
 
-def _normalize(raw):
+def sandbox_class(llmsr_evaluator, inputs: list[str]):
+    """The searcher's sandbox with samples scored by the shared evaluator.
+
+    The final program's "optimize" and "execute" runs keep the sandbox's own path;
+    their result is not used (best.py is refitted by score.py).
+    """
+
+    class Sandbox(llmsr_evaluator.LocalSandbox):
+        def _compile_and_run_function(self, program, function_to_run, *args):
+            if function_to_run != "evaluate":
+                return super()._compile_and_run_function(program, function_to_run, *args)
+            _, dataset, _, result_queue, _ = args
+            try:
+                namespace = {}
+                exec(program, namespace)
+                expr = check(trace(namespace["equation"], inputs))
+                x, y = np.column_stack(dataset["inputs"]), np.asarray(dataset["outputs"])
+                _, mse = fit(compile(expr, inputs), x, y)
+                result_queue.put((-mse, True) if np.isfinite(mse) else (None, False))
+            except Exception as exc:
+                print(f"Execution Error: {exc}")
+                result_queue.put((None, False))
+
+    return Sandbox
+
+
+def llm_class(llm: dict, usage_log: Path, sampler):
+    """The searcher's LLM: one chat completion per sample through our deployment."""
+
+    class LLM(sampler.LLM):
+        def draw_samples(self, prompt, config):
+            raise NotImplementedError("the searcher samples through async_draw_single_sample")
+
+        async def async_draw_single_sample(self, prompt: str, config) -> str:
+            request = {
+                "model": llm["model"],
+                "messages": [{"role": "user", "content": INSTRUCTION + prompt}],
+                "temperature": SEARCH["temperature"],
+                llm["max_tokens_field"]: llm["max_tokens"],
+            }
+            if llm.get("reasoning_effort"):
+                request["reasoning_effort"] = llm["reasoning_effort"]
+            # The searcher runs each prompt in a new event loop; a client's
+            # connection pool must not outlive the loop it was used in.
+            async with openai.AsyncOpenAI(
+                api_key=os.environ[llm["api_key_env"]],
+                base_url=llm["api_base"],
+                timeout=1200,
+                max_retries=0,
+            ) as client:
+                for attempt in range(RETRIES):
+                    content = await _complete(client, request, usage_log)
+                    if content is not None:
+                        return sampler._extract_body(content, config)
+                    print(f"request failed ({attempt + 1}/{RETRIES})", file=sys.stderr)
+            return ""
+
+    return LLM
+
+
+async def _complete(client, request: dict, usage_log: Path) -> str | None:
+    """One request, recorded in usage_log; the response text, None on failure."""
+    record = {"timestamp": datetime.now(UTC).isoformat(), "model": request["model"]}
+    try:
+        response = await client.chat.completions.create(**request)
+    except Exception as exc:
+        _append(usage_log, record | {"error": repr(exc), "usage": None})
+        return None
+    choice = response.choices[0] if response.choices else None
+    raw = response.usage.model_dump() if response.usage else None
+    record |= {
+        "response_id": response.id,
+        "finish_reason": choice.finish_reason if choice else None,
+        "raw_usage": raw,
+        "usage": _usage(raw) if raw else None,
+    }
+    _append(usage_log, record)
+    return (choice.message.content if choice else None) or ""
+
+
+def _usage(raw: dict) -> dict:
     """Mycode's canonical usage fields; missing values stay missing."""
     prompt_details = raw.get("prompt_tokens_details") or {}
     completion_details = raw.get("completion_tokens_details") or {}
@@ -113,104 +195,7 @@ def _normalize(raw):
     return {key: value for key, value in usage.items() if value is not None}
 
 
-def make_sandbox_class(evaluator_module, inputs: list[str]):
-    """The searcher's sandbox, scoring samples with the shared evaluator.
-
-    The final program's "optimize" and "execute" runs keep the sandbox's own path.
-    """
-
-    class Sandbox(evaluator_module.LocalSandbox):
-        def _compile_and_run_function(
-            self,
-            program,
-            function_to_run,
-            function_to_evolve,
-            dataset,
-            numba_accelerate,
-            result_queue,
-            shared_array_np=None,
-        ):
-            if function_to_run != "evaluate":
-                return super()._compile_and_run_function(
-                    program,
-                    function_to_run,
-                    function_to_evolve,
-                    dataset,
-                    numba_accelerate,
-                    result_queue,
-                    shared_array_np,
-                )
-            try:
-                namespace = {}
-                exec(program, namespace)
-                expr = shared.check(shared.trace(namespace["equation"], inputs))
-                x, y = np.column_stack(dataset["inputs"]), np.asarray(dataset["outputs"])
-                _, mse = shared.fit(shared.compile(expr, inputs), x, y)
-                result_queue.put((-mse, True) if np.isfinite(mse) else (None, False))
-            except Exception as exc:
-                print(f"Execution Error: {exc}")
-                result_queue.put((None, False))
-
-    return Sandbox
-
-
-def make_llm_class(llm: dict, usage_log: Path, sampler_module):
-    """The searcher's LLM: one chat completion per sample through our deployment."""
-
-    class LLM(sampler_module.LLM):
-        instruction = (
-            "You are a helpful assistant tasked with discovering mathematical function "
-            "structures for scientific systems. Complete the 'equation' function below, "
-            f"considering the physical meaning and relationships of inputs. {shared.RULE}\n\n"
-        )
-
-        def draw_samples(self, prompt, config):
-            raise NotImplementedError("the searcher samples through async_draw_single_sample")
-
-        async def async_draw_single_sample(self, prompt: str, config) -> str:
-            params = {
-                "model": llm["model"],
-                "messages": [{"role": "user", "content": self.instruction + prompt}],
-                "temperature": 1.0,
-                llm["max_tokens_field"]: llm["max_tokens"],
-            }
-            if llm.get("reasoning_effort"):
-                params["reasoning_effort"] = llm["reasoning_effort"]
-            # The searcher runs each prompt in a new event loop; a client's
-            # connection pool must not outlive the loop it was used in.
-            async with openai.AsyncOpenAI(
-                api_key=os.environ[llm["api_key_env"]],
-                base_url=llm["api_base"],
-                timeout=1200,
-                max_retries=0,
-            ) as client:
-                for attempt in range(RETRIES):
-                    record = {"timestamp": datetime.now(UTC).isoformat(), "model": llm["model"]}
-                    try:
-                        response = await client.chat.completions.create(**params)
-                    except Exception as exc:
-                        record |= {"error": repr(exc), "usage": None}
-                        _log(usage_log, record)
-                        print(f"request failed ({attempt + 1}/{RETRIES}): {exc!r}", file=sys.stderr)
-                        continue
-                    raw = response.usage.model_dump() if response.usage else None
-                    record |= {
-                        "response_id": response.id,
-                        "finish_reason": response.choices[0].finish_reason
-                        if response.choices
-                        else None,
-                        "raw_usage": raw,
-                        "usage": _normalize(raw) if raw else None,
-                    }
-                    _log(usage_log, record)
-                    content = response.choices[0].message.content if response.choices else None
-                    return sampler_module._extract_body(content or "", config)
-            return ""
-
-    return LLM
-
-
-def _log(path: Path, record: dict) -> None:
+def _append(path: Path, record: dict) -> None:
     with path.open("a") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -225,45 +210,45 @@ def main() -> None:
     parser.add_argument("--runs-dir", type=Path, default=Path("runs/llmsr"))
     args = parser.parse_args()
 
-    # The searcher's sandbox evaluates in a child process whose target lives
-    # in the modules imported below; a spawned child cannot import them.
+    # The sandbox evaluates in a child process whose target lives in the
+    # modules imported below; a spawned child could not import them.
     multiprocessing.set_start_method("fork")
     for name in ("httpx", "httpx2", "httpcore", "openai"):
         logging.getLogger(name).setLevel(logging.WARNING)
-    SEDTask, config, sampler, llmsr_evaluator, LLMSRSearcher = _import_llmsr(
+    SEDTask, config, sampler, llmsr_evaluator, LLMSRSearcher = import_llmsr(
         args.llmsr_repo.resolve()
     )
     problem = next(p for p in problems() if p.name == args.problem)
+    inputs = problem.symbols[1:]
     llm = yaml.safe_load(args.llm.read_text())
 
     run_dir = args.runs_dir / f"{datetime.now():%Y%m%d-%H%M%S}-{problem.name}-seed{args.seed}"
     run_dir.mkdir(parents=True)
-    usage_log = run_dir / "usage.jsonl"
     started = datetime.now(UTC)
     np.random.seed(args.seed)  # island and example selection use numpy's global state
 
     cfg = config.Config(
-        experience_buffer=config.ExperienceBufferConfig(num_islands=10),
+        experience_buffer=config.ExperienceBufferConfig(num_islands=SEARCH["num_islands"]),
         use_api=True,
         api_model=llm["model"],
-        samples_per_prompt=4,
+        samples_per_prompt=SEARCH["samples_per_prompt"],
     )
     searcher = LLMSRSearcher(
         "llmsr",
         cfg,
-        make_llm_class(llm, usage_log, sampler),
+        llm_class(llm, run_dir / "usage.jsonl", sampler),
         global_max_sample_num=args.samples,
         log_path=run_dir / "llmsr",
     )
     searcher.class_config = config.ClassConfig(
         llm_class=searcher.class_config.llm_class,
-        sandbox_class=make_sandbox_class(llmsr_evaluator, problem.symbols[1:]),
+        sandbox_class=sandbox_class(llmsr_evaluator, inputs),
     )
     task = SEDTask(
         name=problem.name,
         symbols=problem.symbols,
         symbol_descs=problem.descriptions,
-        symbol_properties=["O"] + ["V"] * (len(problem.symbols) - 1),
+        symbol_properties=["O"] + ["V"] * len(inputs),
         samples=problem.train,
         desc=None,
     )
@@ -278,14 +263,8 @@ def main() -> None:
                 "seed": args.seed,
                 "samples": args.samples,
                 "llm": llm,
-                "llmsr_config": {
-                    "num_islands": 10,
-                    "functions_per_prompt": 2,
-                    "samples_per_prompt": 4,
-                    "evaluate_timeout_seconds": cfg.evaluate_timeout_seconds,
-                    "temperature": 1.0,
-                    "max_size": shared.MAX_SIZE,
-                },
+                "search": SEARCH
+                | {"evaluate_timeout_seconds": cfg.evaluate_timeout_seconds, "max_size": MAX_SIZE},
                 "best_program_score": result.aux["best_program_score"],
                 "best_program_sample_order": result.aux["best_program_sample_order"],
                 "started": started.isoformat(),

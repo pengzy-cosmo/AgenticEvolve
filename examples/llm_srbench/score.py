@@ -5,7 +5,7 @@
 # ///
 """Score final equations on the hidden test sets of one LSR-Synth problem.
 
-Each program goes through the evaluator's trace, check and fit on the training
+Each program goes through the shared trace, check and fit on the training
 observations (what every search method used), then is evaluated on the
 in-domain and out-of-domain test sets:
 - nmse: mean squared error / variance of the test targets;
@@ -29,7 +29,8 @@ import sympy as sp
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 from dataset import problems  # noqa: E402
-from evaluator import check, compile, fit, load, size, trace  # noqa: E402
+from evaluator import fit, load  # noqa: E402
+from expression import check, compile, size, trace  # noqa: E402
 
 TOLERANCES = (0.01, 0.001)
 
