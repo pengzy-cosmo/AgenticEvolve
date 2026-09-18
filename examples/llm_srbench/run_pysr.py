@@ -80,7 +80,7 @@ def main() -> None:
         f'"""LLM-SRBench {problem.name}: PySR\'s equation, constants fitted by PySR."""\n\n'
         "import numpy as np\n\n\n"
         f"def equation({', '.join(inputs)}, params):\n"
-        f"    return np.broadcast_to({code}, np.shape({inputs[0]})).astype(float)\n"
+        f"    return {code}\n"
     )
     model.equations_.to_csv(run_dir / "equations.csv", index=False)
     (run_dir / "run.json").write_text(

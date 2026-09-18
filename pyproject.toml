@@ -25,9 +25,15 @@ dev = [
     "ruff>=0.16.1",
     "ty>=0.0.65",
 ]
+llm-srbench = [
+    "sympy>=1.14.0",
+]
 openevolve = [
     "openevolve==0.3.2",
 ]
+
+[tool.uv]
+default-groups = ["dev", "llm-srbench"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentic_evolve"]

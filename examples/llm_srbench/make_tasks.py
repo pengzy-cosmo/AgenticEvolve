@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["h5py", "huggingface_hub", "numpy", "pyarrow", "pyyaml"]
+# dependencies = ["h5py", "huggingface_hub", "numpy", "pyarrow", "pyyaml", "scipy", "sympy"]
 # ///
 """Generate one task directory per LSR-Synth problem of LLM-SRBench.
 
@@ -19,6 +19,7 @@ Usage: uv run examples/llm_srbench/make_tasks.py [--out DIR]
 import argparse
 import shutil
 import sys
+import textwrap
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +28,7 @@ import yaml
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 from dataset import Problem, problems  # noqa: E402
+from evaluator import MAX_SIZE, RULE  # noqa: E402
 
 BUDGET = {"num_islands": 3, "max_commits": 333, "max_requests": 333}
 
@@ -58,11 +60,11 @@ def _description(p: Problem) -> str:
         f"The {len(p.train)} observations are in data/train.csv, columns {columns}; the\n"
         "first column is the target.\n"
         "\n"
-        "The formal evaluation fits params on these observations with scipy BFGS from\n"
-        "all ones, minimizing the mean squared error, and reports mse and nmse (mse /\n"
-        "variance of the target); combined_score = -nmse is the fitness. A non-finite\n"
-        "mse fails the evaluation. complexity counts the operations in equation and\n"
-        "the functions it calls plus the params entries used, lower is simpler.\n"
+        "The formal evaluation fits params on these observations by least squares from\n"
+        "all ones and reports mse and nmse (mse / variance of the target);\n"
+        f"combined_score = -nmse is the fitness, complexity = nodes / {MAX_SIZE}. A non-finite\n"
+        "mse fails the evaluation.\n"
+        "\n" + textwrap.fill(RULE, 80) + "\n"
     )
 
 
