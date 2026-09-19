@@ -18,8 +18,9 @@ per prompt, 30 s evaluation time limit. Three things are ours:
   least-squares fit) in place of the program's own BFGS evaluate(); the
   prompt states the evaluator's rule;
 - the model client, which sends the output limit under the API's field,
-  records every response's usage, and hands the search an empty sample after
-  the retries are exhausted (an empty sample fails evaluation and is counted).
+  records every request (client.py), and hands the search an empty sample
+  after the retries are exhausted (an empty sample fails evaluation and is
+  counted).
   The repository's own client caps every response at 1024 tokens, retries
   forever and records nothing.
 
@@ -58,6 +59,7 @@ import yaml
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+from client import record
 from dataset import problems
 from evaluator import fit
 from expression import MAX_SIZE, RULE, check, compile, trace
@@ -159,45 +161,13 @@ def llm_class(llm: dict, usage_log: Path, sampler):
 
 async def _complete(client, request: dict, usage_log: Path) -> str | None:
     """One request, recorded in usage_log; the response text, None on failure."""
-    record = {"timestamp": datetime.now(UTC).isoformat(), "model": request["model"]}
     try:
         response = await client.chat.completions.create(**request)
     except Exception as exc:
-        _append(usage_log, record | {"error": repr(exc), "usage": None})
+        record(usage_log, request["model"], error=repr(exc))
         return None
-    choice = response.choices[0] if response.choices else None
-    raw = response.usage.model_dump() if response.usage else None
-    record |= {
-        "response_id": response.id,
-        "finish_reason": choice.finish_reason if choice else None,
-        "raw_usage": raw,
-        "usage": _usage(raw) if raw else None,
-    }
-    _append(usage_log, record)
-    return (choice.message.content if choice else None) or ""
-
-
-def _usage(raw: dict) -> dict:
-    """Mycode's canonical usage fields; missing values stay missing."""
-    prompt_details = raw.get("prompt_tokens_details") or {}
-    completion_details = raw.get("completion_tokens_details") or {}
-    cache_read = prompt_details.get("cached_tokens")
-    if cache_read is None:
-        cache_read = raw.get("prompt_cache_hit_tokens")  # DeepSeek's extension field
-    usage = {
-        "total_tokens": raw.get("total_tokens"),
-        "input_tokens": raw.get("prompt_tokens"),
-        "output_tokens": raw.get("completion_tokens"),
-        "cache_read_tokens": cache_read,
-        "cache_write_tokens": prompt_details.get("cache_write_tokens"),
-        "reasoning_tokens": completion_details.get("reasoning_tokens"),
-    }
-    return {key: value for key, value in usage.items() if value is not None}
-
-
-def _append(path: Path, record: dict) -> None:
-    with path.open("a") as f:
-        f.write(json.dumps(record) + "\n")
+    record(usage_log, request["model"], response)
+    return (response.choices[0].message.content if response.choices else None) or ""
 
 
 def main() -> None:

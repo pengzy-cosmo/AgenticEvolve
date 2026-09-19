@@ -6,7 +6,8 @@
 """Select and score the final equations of runs on one LSR-Synth problem.
 
 Every candidate a run evaluated (Full: archive.jsonl commits; LLM-SR: the
-searcher's samples; PySR: equations.csv) goes through the shared trace, check
+searcher's samples; SR-Scientist: candidates.jsonl; PySR: equations.csv)
+goes through the shared trace, check
 and fit on the training observations, giving its size and train NMSE; the
 run's candidates.csv lists them with the Pareto front (best train NMSE per
 size, dominating smaller sizes) and PySR's score, -dlog(loss)/dsize between
@@ -64,6 +65,11 @@ def candidates(run, inputs):
             record = json.loads(line)
             if record["status"] == "ok":
                 yield record["id"], record["code"]
+    elif (run / "candidates.jsonl").exists():  # SR-Scientist
+        for number, line in enumerate((run / "candidates.jsonl").read_text().splitlines()):
+            candidate = json.loads(line)
+            if "error" not in candidate:
+                yield str(number), "import numpy as np\n\n" + candidate["code"]
     elif (run / "equations.csv").exists():  # PySR
         symbols = {name: sp.Symbol(name) for name in inputs}
         with (run / "equations.csv").open() as f:
