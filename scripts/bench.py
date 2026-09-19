@@ -1,8 +1,10 @@
-"""Benchmark runner: execute an experiment matrix of agentic_evolve and
-OpenEvolve runs, interleaved and in parallel, recording provenance.
+"""Benchmark runner: execute an experiment matrix of agentic_evolve, OpenEvolve
+and symbolic-regression baseline runs, interleaved and in parallel, recording
+provenance.
 
 Usage:
     uv run scripts/bench.py MATRIX.yaml --llm LLM.yaml [--runs-dir DIR] [--parallel 4]
+        [--llmsr-repo DIR] [--srscientist-repo DIR]
         [--only ENTRY ...] [--retry-failed] [--allow-dirty] [--dry-run]
 
 The matrix is the protocol and lives in the repository; the llm file is the
@@ -23,23 +25,45 @@ Matrix file:
         task: examples/online_bin_packing
         iterations: 180
 
-LLM file, one block per system (OpenEvolve has only an OpenAI-compatible
-client):
+A matrix with a `problems` list is expanded before anything else: every entry
+becomes one entry per problem, named <entry>-<problem>, with {problem}
+substituted in its string values and the problem recorded; the expanded
+entries are ordered by problem, so a launch interleaves the methods. The
+systems for the LLM-SRBench problems (examples/llm_srbench) are llmsr (with
+`samples`), srscientist and pysr; the first two need the repositories their
+runners use, given by --llmsr-repo and --srscientist-repo:
 
-    agentic_evolve: {model: deepseek-flash}   # our llm config block
-    openevolve:
+    repeats: 1
+    problems: [CRK21, BPG18]
+    entries:
+      full:
+        system: agentic_evolve
+        config: examples/llm_srbench/tasks/{problem}/config.yaml
+      llmsr: {system: llmsr, samples: 1000}
+      srscientist: {system: srscientist}
+      pysr: {system: pysr}
+
+LLM file, one block per system in the matrix that takes a model (pysr takes
+none). The agentic_evolve block is our llm config block, merged into every
+override; the others are OpenAI-compatible client settings passed to the
+system's runner as --llm:
+
+    agentic_evolve: {model: deepseek-flash}
+    openevolve: &client
       model: deepseek-flash
       api_base: https://api.deepseek.com
       api_key_env: DEEPSEEK_API_KEY
       max_tokens: 384000
       max_tokens_field: max_tokens
+    llmsr: *client
+    srscientist: *client
 
-The agentic_evolve block is merged into every override; the openevolve block
-is passed to the OpenEvolve driver as --llm. Every (entry, repeat) pair gets the directory <runs_dir>/<entry>/r<repeat>/
-holding the override or llm file, one child run directory per attempt (created by the launched program), attempt-<n>.log with the child's
-stdout and stderr, and attempts.jsonl with one record per attempt: command,
-git commit / tag / source tree hash, timestamps, exit code, run directory.
-OpenEvolve's seed is the repeat number.
+Every (entry, repeat) pair gets the directory <runs_dir>/<entry>/r<repeat>/
+holding the override or llm file, one child run directory per attempt
+(created by the launched program), attempt-<n>.log with the child's stdout
+and stderr, and attempts.jsonl with one record per attempt: command, git
+commit / tag / source tree hash, timestamps, exit code, run directory. The
+seed of every system but ours is the repeat number.
 
 Pairs are launched in interleaved order (repeat 1 of every entry, then repeat
 2, ...) through a pool of --parallel slots. An attempt is recorded when it
@@ -61,32 +85,59 @@ from pathlib import Path
 
 import yaml
 
+SRBENCH = "examples/llm_srbench"
+
 
 def git(*args: str) -> str | None:
     result = subprocess.run(["git", *args], capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def command(entry: dict, pair_dir: Path, repeat: int) -> list[str]:
-    if entry["system"] == "agentic_evolve":
+def expand(matrix: dict) -> dict:
+    """The entries, one per (entry, problem) when the matrix lists problems."""
+    if "problems" not in matrix:
+        return matrix["entries"]
+    return {
+        f"{name}-{problem}": {
+            key: value.format(problem=problem) if isinstance(value, str) else value
+            for key, value in entry.items()
+        }
+        | {"problem": problem}
+        for problem in matrix["problems"]
+        for name, entry in matrix["entries"].items()
+    }
+
+
+def command(entry: dict, pair_dir: Path, repeat: int, repos: dict) -> list[str]:
+    system = entry["system"]
+    if system == "agentic_evolve":
         cmd = ["uv", "run", "agentic-evolve", entry["config"]]
         cmd += ["--override", str(pair_dir / "override.yaml"), "--runs-dir", str(pair_dir)]
         return cmd
-    if entry["system"] == "openevolve":
+    if system == "openevolve":
         cmd = ["uv", "run", "--group", "openevolve", "examples/openevolve/run.py"]
         cmd += ["--task", entry["task"], "--llm", str(pair_dir / "llm.yaml")]
         cmd += ["--iterations", str(entry["iterations"]), "--seed", str(repeat)]
         cmd += ["--runs-dir", str(pair_dir)]
         return cmd
-    raise ValueError(f"unknown system {entry['system']!r}")
+    if system in ("llmsr", "srscientist", "pysr"):
+        cmd = ["uv", "run", f"{SRBENCH}/run_{system}.py", "--problem", entry["problem"]]
+        cmd += ["--seed", str(repeat), "--runs-dir", str(pair_dir)]
+        if system != "pysr":
+            cmd += ["--llm", str(pair_dir / "llm.yaml"), f"--{system}-repo", str(repos[system])]
+        if system == "llmsr":
+            cmd += ["--samples", str(entry["samples"])]
+        return cmd
+    raise ValueError(f"unknown system {system!r}")
 
 
 def write_inputs(entry: dict, pair_dir: Path, llm: dict) -> None:
-    if entry["system"] == "agentic_evolve":
+    system = entry["system"]
+    if system == "agentic_evolve":
         override = {**entry.get("override", {}), "llm": llm["agentic_evolve"]}
         (pair_dir / "override.yaml").write_text(yaml.safe_dump(override, sort_keys=False))
-    else:
-        (pair_dir / "llm.yaml").write_text(yaml.safe_dump(llm["openevolve"], sort_keys=False))
+    elif system != "pysr":
+        (pair_dir / "llm.yaml").write_text(yaml.safe_dump(llm[system], sort_keys=False))
 
 
 def attempts(pair_dir: Path) -> list[dict]:
@@ -106,12 +157,12 @@ def save_attempt(pair_dir: Path, record: dict) -> None:
 
 
 async def launch(
-    name: str, entry: dict, pair_dir: Path, repeat: int, llm: dict, provenance: dict
+    name: str, entry: dict, pair_dir: Path, repeat: int, llm: dict, repos: dict, provenance: dict
 ) -> None:
     pair_dir.mkdir(parents=True, exist_ok=True)
     write_inputs(entry, pair_dir, llm)
     number = len(attempts(pair_dir)) + 1
-    cmd = command(entry, pair_dir, repeat)
+    cmd = command(entry, pair_dir, repeat, repos)
     before = {p for p in pair_dir.iterdir() if p.is_dir()}
     started = datetime.now(UTC)
     # Recorded as running before the child starts: an interrupted runner
@@ -165,6 +216,10 @@ def main() -> None:
     parser.add_argument("--llm", type=Path, required=True)
     parser.add_argument("--runs-dir", type=Path, help="default runs/<matrix stem>-<llm stem>")
     parser.add_argument("--parallel", type=int, default=4)
+    parser.add_argument("--llmsr-repo", type=Path, help="LLM-SRBench clone, for llmsr entries")
+    parser.add_argument(
+        "--srscientist-repo", type=Path, help="SR-Scientist clone, for srscientist entries"
+    )
     parser.add_argument("--only", nargs="*", help="entry names to run; default all")
     parser.add_argument("--retry-failed", action="store_true")
     parser.add_argument("--allow-dirty", action="store_true")
@@ -186,9 +241,16 @@ def main() -> None:
 
     matrix = yaml.safe_load(args.matrix.read_text())
     runs_dir = args.runs_dir or Path("runs") / f"{args.matrix.stem}-{args.llm.stem}"
-    entries = matrix["entries"]
+    entries = expand(matrix)
     if args.only:
         entries = {name: entries[name] for name in args.only}
+    systems = {e["system"] for e in entries.values()}
+    if missing := systems - {"pysr"} - llm.keys():
+        sys.exit(f"llm file lacks the block(s) {', '.join(sorted(missing))}")
+    repos = {"llmsr": args.llmsr_repo, "srscientist": args.srscientist_repo}
+    for system, repo in repos.items():
+        if repo is None and system in systems:
+            sys.exit(f"{system} entries need --{system}-repo")
 
     jobs = []
     for repeat in range(1, matrix["repeats"] + 1):
@@ -201,14 +263,14 @@ def main() -> None:
                 statuses = ", ".join(a["status"] for a in done)
                 print(f"skip {name} r{repeat}: attempts {statuses}; use --retry-failed")
                 continue
-            jobs.append((name, entry, pair_dir, repeat, llm, provenance))
+            jobs.append((name, entry, pair_dir, repeat, llm, repos, provenance))
 
     print(
         f"{len(jobs)} run(s) to launch, {args.parallel} in parallel; tree {provenance['git_tree']}"
     )
     if args.dry_run:
-        for name, entry, pair_dir, repeat, _, _ in jobs:
-            print(f"  {name} r{repeat}: {' '.join(command(entry, pair_dir, repeat))}")
+        for name, entry, pair_dir, repeat, _, _, _ in jobs:
+            print(f"  {name} r{repeat}: {' '.join(command(entry, pair_dir, repeat, repos))}")
         return
     try:
         asyncio.run(run_all(jobs, args.parallel))

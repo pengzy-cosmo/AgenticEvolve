@@ -20,7 +20,8 @@ per prompt, 30 s evaluation time limit. Three things are ours:
 - the model client, which sends the output limit under the API's field,
   records every request (client.py), and hands the search an empty sample
   after the retries are exhausted (an empty sample fails evaluation and is
-  counted).
+  counted). The run then still finishes but exits non-zero, with the number
+  of such requests in run.json, so scripts/bench.py marks the attempt failed.
   The repository's own client caps every response at 1024 tokens, retries
   forever and records nothing.
 
@@ -39,6 +40,7 @@ from which score.py selects and scores the final equation.
 
 # ruff: noqa: E402
 import argparse
+import asyncio
 import json
 import logging
 import multiprocessing
@@ -129,6 +131,8 @@ def llm_class(llm: dict, usage_log: Path, sampler):
     """The searcher's LLM: one chat completion per sample through our deployment."""
 
     class LLM(sampler.LLM):
+        exhausted = 0  # requests that failed RETRIES times
+
         def draw_samples(self, prompt, config):
             raise NotImplementedError("the searcher samples through async_draw_single_sample")
 
@@ -154,6 +158,8 @@ def llm_class(llm: dict, usage_log: Path, sampler):
                     if content is not None:
                         return sampler._extract_body(content, config)
                     print(f"request failed ({attempt + 1}/{RETRIES})", file=sys.stderr)
+                    await asyncio.sleep(2**attempt)
+            type(self).exhausted += 1
             return ""
 
     return LLM
@@ -203,10 +209,11 @@ def main() -> None:
         api_model=llm["model"],
         samples_per_prompt=SEARCH["samples_per_prompt"],
     )
+    LLM = llm_class(llm, run_dir / "usage.jsonl", sampler)
     searcher = LLMSRSearcher(
         "llmsr",
         cfg,
-        llm_class(llm, run_dir / "usage.jsonl", sampler),
+        LLM,
         global_max_sample_num=args.samples,
         log_path=run_dir / "llmsr",
     )
@@ -237,12 +244,15 @@ def main() -> None:
                 | {"evaluate_timeout_seconds": cfg.evaluate_timeout_seconds, "max_size": MAX_SIZE},
                 "best_program_score": result.aux["best_program_score"],
                 "best_program_sample_order": result.aux["best_program_sample_order"],
+                "failed_requests": LLM.exhausted,
                 "started": started.isoformat(),
                 "finished": datetime.now(UTC).isoformat(),
             },
             indent=2,
         )
     )
+    if LLM.exhausted:
+        sys.exit(f"{LLM.exhausted} request(s) failed {RETRIES} times")
     print(f"wrote {run_dir}")
 
 

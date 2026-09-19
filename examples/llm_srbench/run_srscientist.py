@@ -19,7 +19,10 @@ best three candidates so far carried into the next turn's prompt, completion
 below MAPE 1e-6. Four things are replaced through the module attributes the
 searcher calls; its repository is not modified:
 - the model client: our deployment, the output limit under the API's field,
-  retries, every request recorded (client.py). The searcher fixes
+  retries, every request recorded (client.py). A request that fails every
+  retry ends its conversation, as the searcher's own failures do; the run then
+  still finishes but exits non-zero, with the number of such requests in
+  run.json, so scripts/bench.py marks the attempt failed. The searcher fixes
   max_completion_tokens 8192 and records nothing.
 - the scoring of candidates: the shared evaluator (trace, size check,
   least-squares fit) in a 30 s subprocess, both in the tool and in the
@@ -250,6 +253,8 @@ def client_class(llm: dict, run_dir: Path):
     every request recorded in usage.jsonl and the conversation appended to transcript.jsonl."""
 
     class Client:
+        exhausted = 0  # requests that failed RETRIES times
+
         def __init__(self, api_key=None, base_url=None):
             self.client = openai.AsyncOpenAI(
                 api_key=os.environ[llm["api_key_env"]], base_url=llm["api_base"], max_retries=0
@@ -269,10 +274,12 @@ def client_class(llm: dict, run_dir: Path):
                 except Exception as exc:
                     record(run_dir / "usage.jsonl", request["model"], error=repr(exc))
                     print(f"request failed ({attempt + 1}/{RETRIES}): {exc!r}", file=sys.stderr)
+                    await asyncio.sleep(2**attempt)
                     continue
                 record(run_dir / "usage.jsonl", request["model"], response)
                 self.transcribe([*request["messages"], response.choices[0].message.model_dump()])
                 return response
+            type(self).exhausted += 1
             raise RuntimeError(f"request failed {RETRIES} times")
 
         def transcribe(self, messages: list) -> None:
@@ -319,7 +326,7 @@ def main() -> None:
     candidates = Candidates(
         inputs, problem.train, run_dir / "candidates.jsonl", get_results._clean_code_block
     )
-    inference.AsyncOpenAI = client_class(llm, run_dir)
+    inference.AsyncOpenAI = Client = client_class(llm, run_dir)
     inference.get_function_by_name = tool_functions(candidates, json.dumps(problem.train.tolist()))
     inference.evaluate_branch_worker = branch_worker(candidates, get_results.parse_equation)
     inference.SYSTEM_PROMPT = system_prompt(inference.SYSTEM_PROMPT)
@@ -365,9 +372,15 @@ def main() -> None:
         )
     )
 
-    info |= {"candidates": len(candidates.cache), "finished": datetime.now(UTC).isoformat()}
+    info |= {
+        "candidates": len(candidates.cache),
+        "failed_requests": Client.exhausted,
+        "finished": datetime.now(UTC).isoformat(),
+    }
     (run_dir / "run.json").write_text(json.dumps(info, indent=2))
     print(f"wrote {run_dir}")
+    if Client.exhausted:
+        sys.exit(f"{Client.exhausted} request(s) failed {RETRIES} times")
 
 
 if __name__ == "__main__":

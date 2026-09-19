@@ -1,0 +1,24 @@
+# Symbolic regression on LLM-SRBench LSR-Synth: the 12 problems select.py
+# picks, each method once per problem. Full and No-analysis run the task
+# directories make_tasks.py generates (3 islands x 333 requests, idle stop
+# after 5 turns); LLM-SR 1000 samples; SR-Scientist and PySR their runners'
+# defaults. The model comes from the file given to scripts/bench.py --llm;
+# llmsr and srscientist need --llmsr-repo and --srscientist-repo.
+repeats: 1
+problems: [CRK21, CRK35, BPG18, PO10, PO0, PO26, PO16, PO1, PO7, MatSci11, MatSci9, MatSci6]
+entries:
+  full:
+    system: agentic_evolve
+    config: examples/llm_srbench/tasks/{problem}/config.yaml
+  no-analysis:
+    system: agentic_evolve
+    config: examples/llm_srbench/tasks/{problem}/config.yaml
+    override:
+      evolution: {max_analyses_per_commit: 0}
+  llmsr:
+    system: llmsr
+    samples: 1000
+  srscientist:
+    system: srscientist
+  pysr:
+    system: pysr
