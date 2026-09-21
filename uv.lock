@@ -909,7 +909,7 @@ wheels = [
 
 [[package]]
 name = "python-agentic-evolve"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "mycode-sdk" },

@@ -80,7 +80,8 @@ def _system_prompt(cfg: Config) -> str:
         "- commit: run the formal evaluator on program.py, append the program and result\n"
         "  to the archive, and return the feedback above. Formal metrics are available\n"
         "  only through commit. A failed evaluation is recorded and consumes budget like\n"
-        "  any other commit."
+        "  any other commit; its feedback is the exception type and line, plus the\n"
+        "  message when the evaluator itself rejected the program."
     )
     tools.append(
         "- read_commit: return the full program.py of a recorded commit; write it to\n"
@@ -516,10 +517,11 @@ class Island:
             program = island.program
             logger.info("island %d: evaluating commit %s", island.id, commit_id)
             started = perf_counter()
+            output = None
             try:
                 metrics = await island.executor.evaluate(program)
             except EvaluationError as exc:
-                metrics, status, error = None, exc.status, str(exc)
+                metrics, status, error, output = None, exc.status, str(exc), exc.output
             else:
                 status, error = "ok", island._validate_metrics(metrics)
                 if error is not None:
@@ -537,6 +539,7 @@ class Island:
                 status=status,
                 metrics=metrics,
                 error=error,
+                output=output,
             )
             return island._record_commit(record)
 

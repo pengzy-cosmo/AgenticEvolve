@@ -31,8 +31,11 @@ class Behavior:
 
 @dataclass
 class CommitRecord:
-    """One formal evaluation. status is "ok" | "error" | "timeout"; successful
-    records carry metrics, failed records carry error."""
+    """One formal evaluation with status "ok", "error" or "timeout".
+
+    Success carries metrics; failure carries the model-facing error and any
+    captured diagnostic output, truncated to the executor's output limit.
+    """
 
     id: str
     island_id: int
@@ -44,6 +47,7 @@ class CommitRecord:
     status: str
     metrics: dict | None = None
     error: str | None = None
+    output: str | None = None
 
 
 class Archive:

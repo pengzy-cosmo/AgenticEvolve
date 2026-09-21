@@ -92,14 +92,13 @@ import json, sys
 sys.path.insert(0, {str(HERE)!r})
 import numpy as np
 from evaluator import fit
-from expression import check, compile, size, trace
+from expression import check, compile, load, size, trace
 
 task = json.loads(sys.stdin.read())
 rows = np.asarray(task["rows"], dtype=float)
 y, x = rows[:, 0], rows[:, 1:]
-namespace = {{"np": np}}  # the searcher imports numpy for the equation
-exec(task["code"], namespace)
-expr = check(trace(namespace["equation"], task["inputs"]))
+equation = load("import numpy as np\n" + task["code"])  # the searcher's candidates assume np
+expr = check(trace(equation, task["inputs"]))
 equation = compile(expr, task["inputs"])
 params, mse = fit(equation, x, y)
 if not np.isfinite(mse):

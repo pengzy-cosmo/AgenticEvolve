@@ -44,16 +44,10 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 from dataset import problems  # noqa: E402
 from evaluator import fit  # noqa: E402
-from expression import check, compile, size, trace  # noqa: E402
+from expression import check, compile, load, size, trace  # noqa: E402
 
 TOLERANCES = (0.01, 0.001)
 BEST_WITHIN = 1.5
-
-
-def _equation(code):
-    namespace = {}
-    exec(code, namespace)
-    return namespace["equation"]
 
 
 def candidates(run, inputs):
@@ -93,7 +87,7 @@ def evaluate(run, inputs, x, y):
         row = {"id": candidate}
         try:
             if isinstance(program, str):
-                program = trace(_equation(program), inputs)
+                program = trace(load(program), inputs)
             row["expression"] = program
             expression = check(program)
             params, mse = fit(compile(expression, inputs), x, y)

@@ -12,11 +12,10 @@ complexity = size / MAX_SIZE. A non-finite mse fails the evaluation.
 data/train.csv next to this file holds the observations, target column first.
 """
 
-import importlib.util
 from pathlib import Path
 
 import numpy as np
-from expression import MAX_SIZE, N_PARAMS, check, compile, size, trace
+from expression import MAX_SIZE, N_PARAMS, check, compile, load, size, trace
 from scipy.optimize import least_squares
 
 
@@ -31,22 +30,14 @@ def fit(equation, x, y):
     return result.x, float(np.mean(result.fun**2))
 
 
-def load(program_path):
-    spec = importlib.util.spec_from_file_location("program", program_path)
-    program = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(program)
-    if not hasattr(program, "equation"):
-        raise ValueError("program must define equation(..., params)")
-    return program.equation
-
-
 def evaluate(program_path):
     data = Path(__file__).parent / "data/train.csv"
     inputs = data.read_text().split("\n", 1)[0].split(",")[1:]
     rows = np.loadtxt(data, delimiter=",", skiprows=1)
     y, x = rows[:, 0], rows[:, 1:]
 
-    expr = check(trace(load(program_path), inputs))
+    equation = load(Path(program_path).read_text(), program_path)
+    expr = check(trace(equation, inputs))
     _, mse = fit(compile(expr, inputs), x, y)
     if not np.isfinite(mse):
         raise ValueError(f"fit produced a non-finite mse: {mse}")

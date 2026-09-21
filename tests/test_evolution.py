@@ -230,7 +230,8 @@ async def test_failed_evaluations_are_recorded_and_consume_budget(run_task):
 
     assert failed["id"] == "0-1"
     assert failed["status"] == "error"
-    assert "exited with code 1" in failed["error"]
+    assert failed["error"] == "RuntimeError at <string> line 1"
+    assert "RuntimeError: boom" in failed["output"]
     assert "metrics" not in failed
     assert failed["behavior"]["run_analysis_count"] == 1
     assert failed_source == "raise RuntimeError('boom')\n"
@@ -555,6 +556,41 @@ async def test_executions_run_in_ephemeral_redirected_environments(run_task):
     await run_task(scenario)
 
     assert "True\n1" in outputs[0]
+
+
+async def test_failed_evaluation_feedback_carries_no_program_output(run_task):
+    """Candidate diagnostics stay in the archive; evaluator rejection messages reach the model."""
+    evaluator = """\
+def evaluate(program_path):
+    namespace = {}
+    exec(open(program_path).read(), namespace)
+    if namespace["SCORE"] < 0:
+        raise ValueError("score must be non-negative")
+    return {"score": float(namespace["SCORE"]), "feature": 0.5}
+"""
+    programs = [
+        "class Leak(Exception):\n    pass\n\nraise Leak('frequency 0.776')\n",
+        "SCORE = -1\n",
+        "import sys\nprint('frequency 0.776')\nsys.exit(3)\n",
+    ]
+    feedbacks = []
+
+    async def scenario(agent, prompt):
+        yield usage(100)
+        for program in programs:
+            await agent.call("write", path="program.py", content=program)
+            feedbacks.append(await agent.call("commit", description="probe"))
+
+    run_dir = await run_task(scenario, max_commits=3, evaluator=evaluator)
+    errors = [record["error"] for record in archive_records(run_dir)]
+
+    assert errors == [
+        "Exception at <string> line 4",
+        "ValueError: score must be non-negative",
+        "evaluator exited with code 3",
+    ]
+    assert all("0.776" not in feedback for feedback in feedbacks)
+    assert all("0.776" in record["output"] for record in archive_records(run_dir)[::2])
 
 
 async def test_non_finite_metrics_are_rejected(run_task):

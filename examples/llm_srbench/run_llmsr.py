@@ -64,7 +64,7 @@ sys.path.insert(0, str(HERE))
 from client import record
 from dataset import problems
 from evaluator import fit
-from expression import MAX_SIZE, RULE, check, compile, trace
+from expression import MAX_SIZE, RULE, check, compile, load, trace
 
 RETRIES = 8
 INSTRUCTION = (
@@ -114,9 +114,7 @@ def sandbox_class(llmsr_evaluator, inputs: list[str]):
                 return super()._compile_and_run_function(program, function_to_run, *args)
             _, dataset, _, result_queue, _ = args
             try:
-                namespace = {}
-                exec(program, namespace)
-                expr = check(trace(namespace["equation"], inputs))
+                expr = check(trace(load(program), inputs))
                 x, y = np.column_stack(dataset["inputs"]), np.asarray(dataset["outputs"])
                 _, mse = fit(compile(expr, inputs), x, y)
                 result_queue.put((-mse, True) if np.isfinite(mse) else (None, False))

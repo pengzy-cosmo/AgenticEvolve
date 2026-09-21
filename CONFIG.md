@@ -44,7 +44,8 @@ map_elites:
 
 executor:
   timeout: 120                         # seconds per evaluation or analysis execution
-  output_limit: 10000                  # characters of stdout/stderr returned to the model
+  output_limit: 10000                  # character limit per stdout/stderr stream;
+                                      # analysis returns it, evaluation failures archive it
 
 compact:
   compact_threshold: 0.7               # fraction of the context window at which the

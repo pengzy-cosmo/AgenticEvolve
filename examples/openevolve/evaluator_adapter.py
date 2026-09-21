@@ -34,11 +34,12 @@ FAILURE_METRICS = {_cfg.map_elites.fitness: 0.0} | {f: 0.0 for f in _cfg.map_eli
 def evaluate(program_path: str):
     program = Path(program_path).read_text()
     start = time.perf_counter()
+    output = None
     try:
         metrics = asyncio.run(_executor.evaluate(program))
         status, error = "ok", None
     except EvaluationError as exc:
-        metrics, status, error = None, exc.status, str(exc)
+        metrics, status, error, output = None, exc.status, str(exc), exc.output
     _log(
         {
             "timestamp": datetime.now(UTC).isoformat(),
@@ -46,6 +47,7 @@ def evaluate(program_path: str):
             "status": status,
             "metrics": metrics,
             "error": error,
+            "output": output,
             "program": program,
         }
     )

@@ -1,8 +1,12 @@
 """Temp-dir subprocess execution for analysis runs and formal evaluation.
 
-Each execution gets a fresh temp directory and its own process group; timeout
-and task cancellation kill the whole group. This module is the isolation
-boundary: replace it to add system-level sandboxing.
+Each execution gets a fresh temp directory and process group. Timeout and
+cancellation kill the group. Filesystem permissions remain those of the host
+user; system-level sandboxing belongs in this execution backend.
+
+Analysis output is returned to the model. Evaluation failures return a summary
+of the runner's exception record, keeping raw stdout and stderr in the archive.
+Each output stream is truncated to output_limit before storage or feedback.
 """
 
 from __future__ import annotations
@@ -20,14 +24,16 @@ from agentic_evolve.config import ExecutorConfig
 
 _RUNNER_PATH = Path(__file__).parent / "_eval_runner.py"
 METRICS_FILENAME = "metrics.json"
+ERROR_FILENAME = "error.json"
 
 
 class EvaluationError(Exception):
-    """Formal evaluation failed: crash, timeout, or invalid metrics output."""
+    """Failed evaluation with model-facing feedback and separate diagnostic output."""
 
-    def __init__(self, message: str, status: str = "error"):
+    def __init__(self, message: str, status: str = "error", output: str = ""):
         super().__init__(message)
         self.status = status
+        self.output = output
 
 
 class Executor:
@@ -75,27 +81,29 @@ class Executor:
         tmp = Path(tempfile.mkdtemp(prefix="evolve-eval-"))
         try:
             (tmp / "program.py").write_text(program)
-            metrics_path = tmp / METRICS_FILENAME
+            metrics_path, error_path = tmp / METRICS_FILENAME, tmp / ERROR_FILENAME
             cmd = [
                 sys.executable,
                 str(_RUNNER_PATH),
                 str(self.evaluator_path),
                 str(tmp / "program.py"),
                 str(metrics_path),
+                str(error_path),
             ]
             code, out, err, timed_out = await self._run(cmd, tmp)
             if timed_out:
                 raise EvaluationError(
                     f"evaluation timed out after {self.cfg.timeout}s", status="timeout"
                 )
+            output = f"stdout:\n{out}\nstderr:\n{err}"
             if code != 0:
-                raise EvaluationError(
-                    f"evaluator exited with code {code}\nstdout:\n{out}\nstderr:\n{err}"
-                )
+                if error_path.exists():
+                    raise EvaluationError(
+                        self._summary(json.loads(error_path.read_text())), output=output
+                    )
+                raise EvaluationError(f"evaluator exited with code {code}", output=output)
             if not metrics_path.exists():
-                raise EvaluationError(
-                    f"evaluator wrote no metrics file\nstdout:\n{out}\nstderr:\n{err}"
-                )
+                raise EvaluationError("evaluator wrote no metrics file", output=output)
             try:
                 metrics = json.loads(metrics_path.read_text())
             except json.JSONDecodeError as exc:
@@ -147,6 +155,26 @@ class Executor:
             self._truncate(err.decode(errors="replace")),
             False,
         )
+
+    def _summary(self, error: dict) -> str:
+        """Keep messages raised in evaluator code; summarize candidate and library errors
+        by builtin exception type and source location. Custom types become Exception.
+        """
+        evaluator_dir = self.evaluator_path.parent
+        frames = error["frames"]
+        if frames and Path(frames[-1][0]).is_relative_to(evaluator_dir):
+            return f"{error['type']}: {error['message']}".partition("\n")[0]
+        name = error["type"] if error["builtin"] else "Exception"
+        library = (sys.prefix, sys.base_prefix)
+        program = [
+            (path, line)
+            for path, line in frames
+            if not Path(path).is_relative_to(evaluator_dir) and not path.startswith(library)
+        ]
+        if not program:
+            return name
+        path, line = program[-1]
+        return f"{name} at {Path(path).name} line {line}"
 
     def _truncate(self, text: str) -> str:
         if len(text) <= self.cfg.output_limit:

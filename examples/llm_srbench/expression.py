@@ -15,8 +15,14 @@ check rejects operators outside + - * / pow, exp log sqrt sin cos, abs max min
 and piecewise selection (np.where), and expressions above MAX_SIZE nodes.
 
 compile turns the expression back into a numpy equation(*columns, params).
+
+load checks imports and prohibited names before executing a candidate and
+returning equation. All Python candidate loaders share these protocol checks;
+filesystem and process isolation require a separate execution sandbox.
 """
 
+import ast
+import builtins
 from functools import reduce
 
 import numpy as np
@@ -33,7 +39,8 @@ RULE = (
     f"functions and data-dependent branches fail. At most {MAX_SIZE} nodes, every operator, "
     "input, params entry and numeric constant counting one, as written: an intermediate "
     "variable is counted at every use, and a literal constant costs the same node as a "
-    "params entry. Larger expressions fail the evaluation."
+    "params entry. Larger expressions fail the evaluation. The program may import numpy "
+    "and math only."
 )
 
 
@@ -221,6 +228,42 @@ def size(expr):
         return 1
     operators = len(args) - 1 if isinstance(expr, (sp.Add, sp.Max, sp.Min)) else 1
     return operators + sum(size(arg) for arg in args)
+
+
+MODULES = {"numpy", "math"}
+FORBIDDEN = {
+    "open", "exec", "eval", "compile", "globals", "locals", "vars",
+    "getattr", "setattr", "delattr", "breakpoint", "input", "__import__",
+}  # fmt: skip
+
+
+def load(source, filename="program.py"):
+    """Check imports and names, execute the source, and return equation.
+
+    Imports are limited to numpy and math. Prohibited names and dunder access
+    raise ValueError before execution.
+    """
+    tree = ast.parse(source, filename)
+    for node in ast.walk(tree):
+        match node:
+            case ast.Import(names=aliases):
+                modules = [alias.name for alias in aliases]
+            case ast.ImportFrom(module=module):
+                modules = [module or ""]
+            case ast.Name(id=name) | ast.Attribute(attr=name) if (
+                name in FORBIDDEN or name.startswith("__")
+            ):
+                raise ValueError(f"{name} is not allowed in a program")
+            case _:
+                continue
+        for module in modules:
+            if module.partition(".")[0] not in MODULES:
+                raise ValueError(f"import of {module}: a program may import numpy and math only")
+    namespace = {}
+    exec(builtins.compile(tree, filename, "exec"), namespace)
+    if "equation" not in namespace:
+        raise ValueError("program must define equation(..., params)")
+    return namespace["equation"]
 
 
 def check(expr):
