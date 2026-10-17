@@ -161,7 +161,7 @@ class Executor:
         by builtin exception type and source location. Custom types become Exception.
         """
         evaluator_dir = self.evaluator_path.parent
-        frames = error["frames"]
+        frames = error["frames"][1:]  # the first frame is the runner's own call
         if frames and Path(frames[-1][0]).is_relative_to(evaluator_dir):
             return f"{error['type']}: {error['message']}".partition("\n")[0]
         name = error["type"] if error["builtin"] else "Exception"
