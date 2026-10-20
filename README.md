@@ -33,11 +33,13 @@ config.yaml         description, paths, settings
 initial_program.py  starting program.py
 evaluator.py        evaluate(program_path) -> dict with the fitness field and
                     the feature fields, each feature in [0, 1]
-data/               optional raw inputs, copied into every analysis execution
+resources/          optional public data, solver code, and notes
 openevolve.yaml     optional OpenEvolve settings for the comparison driver
 ```
 
-The description is the model's only source of task knowledge. State the harness semantics, the full function interface, the evaluation protocol, and the meaning of every metric. Evaluator inputs (hidden instances, reference values) stay beside the evaluator and never enter the analysis environment. See [examples/](examples/) for task examples.
+The description defines the task: state the function interface, execution rules, evaluation protocol, and meaning of each metric. Use `task.resources` for public files. They are listed in the system prompt, available through `read`, and copied into each analysis and evaluation directory. Python modules in that directory can be imported by the candidate program. The original resources are read-only through the tools; changes to execution copies are discarded after each run.
+
+Keep private evaluator inputs, such as hidden instances and reference values, beside the evaluator and outside the resources directory. See [examples/](examples/) for task examples.
 
 ## Run directory
 
@@ -57,8 +59,8 @@ Runs store token counts. Cost is estimated at plot time from the mycode model ca
 
 ## Notes
 
-- Generated code runs in local subprocesses with a timeout and process-group kill, without a sandbox. `executor.py` is the isolation boundary.
-- Comparison runs against OpenEvolve and the experiment matrix: [experiments/README.md](experiments/README.md).
+- OS sandboxing uses the built-in `sandbox-exec` on macOS and requires `bubblewrap` with unprivileged user namespaces on Linux. Windows runs without an OS sandbox. See [CONFIG.md](CONFIG.md) for sandbox settings.
+- For comparison runs against OpenEvolve and experiment matrices, see [experiments/README.md](experiments/README.md).
 
 ## Development
 

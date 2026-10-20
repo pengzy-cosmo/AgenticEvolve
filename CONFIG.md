@@ -8,8 +8,8 @@ task:                                # required
   evaluator: evaluator.py              # defines evaluate(program_path) -> dict
   description: |                       # given verbatim to the model in the system prompt
     ...
-  # data: data                         # optional directory of raw task inputs, copied
-                                       # into every analysis execution directory
+  # resources: resources               # optional public files, available through read
+                                       # and copied into each execution directory
 
 llm:
   model: deepseek-flash                # required; the only required llm field
@@ -33,8 +33,8 @@ evolution:
   # max_requests: 333                  # optional hard stop per island on model requests
                                        # (every response counts); the response that
                                        # reaches it still runs its tool calls
-  # max_idle_turns: 5                  # optional stop per island after this many consecutive
-                                       # turns without a tool call (the model has stopped)
+  max_idle_turns: 5                    # stop per island after this many consecutive
+                                       # turns without a tool call
 
 map_elites:
   features: [complexity, bf_divergence]  # required; metric fields spanning the grid,
@@ -45,7 +45,8 @@ map_elites:
 executor:
   timeout: 120                         # seconds per evaluation or analysis execution
   output_limit: 10000                  # character limit per stdout/stderr stream;
-                                      # analysis returns it, evaluation failures archive it
+                                       # analysis returns it, evaluation failures archive it
+  sandbox: auto                        # auto, required, or disabled (see below)
 
 compact:
   compact_threshold: 0.7               # fraction of the context window at which the
@@ -55,6 +56,8 @@ compact:
 ```
 
 Paths in `task` are relative to the config file. The evaluator's dict must contain the fitness field and every feature field as finite numbers; anything else fails the commit.
+
+`executor.sandbox` controls OS sandboxing. `auto` uses the platform sandbox when available and logs a warning otherwise. `required` stops startup if the sandbox is unavailable; `disabled` runs without it. Subprocess environment variables are restricted in all three modes.
 
 ## Overrides
 

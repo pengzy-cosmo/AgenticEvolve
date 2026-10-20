@@ -31,6 +31,22 @@ logger = logging.getLogger(__name__)
 DRIVER_MESSAGE = "Continue."
 
 
+def resource_files(cfg: Config) -> list[tuple[str, int]]:
+    """List resource paths as exposed to the model, with sizes in bytes."""
+
+    if cfg.task.resources is None:
+        return []
+    root = Path(cfg.task.resources)
+    files = [
+        path
+        for path in root.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.name != ".DS_Store"
+    ]
+    return sorted(
+        (f"{root.name}/{path.relative_to(root).as_posix()}", path.stat().st_size) for path in files
+    )
+
+
 def _system_prompt(cfg: Config) -> str:
     """The running contract: task, feedback semantics, capabilities. It varies
     only with the task and with the analysis capability; runtime state (program,
@@ -60,17 +76,27 @@ def _system_prompt(cfg: Config) -> str:
         file_lines.append(
             "- analysis.py: your workspace for investigating hypotheses; it may `import program`."
         )
-    data = ""
-    if cfg.task.data is not None and analysis:
-        data = f" and the task data in {Path(cfg.task.data).name}/"
+    resources = resource_files(cfg)
+    held = files
+    if resources:
+        name = Path(cast(str, cfg.task.resources)).name
+        held = f"{files.replace(' and ', ', ')} and {name}/"
+        file_lines.append(
+            f"- {name}/: read-only task resources, importable from {files}:\n"
+            + "\n".join(f"    {path} ({size / 1000:.1f} kB)" for path, size in resources)
+        )
     parts.append(
-        "Files, in memory and accessible only through your tools:\n"
+        "Files, accessible only through your tools:\n"
         + "\n".join(file_lines)
-        + f"\nEvery execution runs in a fresh temporary directory holding {files}{data}:\n"
-        "only stdout comes back, do not touch files outside it, and state persists\n"
-        f"across executions only through {files}.\n"
+        + f"\nEvery execution runs in a fresh temporary directory holding {held}:\n"
+        "only stdout comes back, do not write outside it or use the network, and\n"
+        f"state persists across executions only through {files}.\n"
     )
-    tools = [f"- read / write / edit: operate on {files}."]
+    tools = [
+        f"- read / write / edit: operate on {files}; read also serves the task resources."
+        if resources
+        else f"- read / write / edit: operate on {files}."
+    ]
     if analysis:
         tools.append(
             "- run_analysis: execute the current analysis.py and return its output, up to\n"
@@ -160,6 +186,7 @@ class Island:
         self.program = initial_program
         self.initial_metrics = initial_metrics
         self.analysis = ""
+        self.resource_names = {path for path, _ in resource_files(config)}
         self.analysis_count = 0
         self.commit_count = 0
         self.request_count = 0
@@ -202,7 +229,7 @@ class Island:
             if self.requests_exhausted:
                 reason = f"max_requests ({evolution.max_requests}) reached"
                 break
-            if evolution.max_idle_turns is not None and self.idle_turns >= evolution.max_idle_turns:
+            if self.idle_turns >= evolution.max_idle_turns:
                 reason = f"agent stopped ({self.idle_turns} turns without tool calls)"
                 break
             if self.compact_requested:
@@ -420,15 +447,27 @@ class Island:
     # Tools
     # ------------------------------------------------------------------
 
-    def _file_error(self, path: str) -> str | None:
+    def _file_error(self, path: str, *, writing: bool = False) -> str | None:
         analysis = self.cfg.evolution.max_analyses_per_commit > 0
         if path == "program.py" or (path == "analysis.py" and analysis):
             return None
+        if path in self.resource_names:
+            return f"error: {path} is a read-only task resource" if writing else None
         usable = '"program.py" or "analysis.py"' if analysis else '"program.py"'
+        if self.resource_names:
+            usable += " or a task resource path"
         return f"error: unknown path {path!r}; use {usable}"
 
     def _get_file(self, path: str) -> str:
-        return self.program if path == "program.py" else self.analysis
+        if path == "program.py":
+            return self.program
+        if path == "analysis.py":
+            return self.analysis
+        # A listed resource path; its first component is the resources directory name.
+        try:
+            return (Path(cast(str, self.cfg.task.resources)).parent / path).read_text()
+        except UnicodeDecodeError:
+            return f"error: {path} is not a text file; use it from analysis.py"
 
     def _set_file(self, path: str, content: str) -> None:
         if path == "program.py":
@@ -441,10 +480,16 @@ class Island:
         max_analyses = self.cfg.evolution.max_analyses_per_commit
         target = "program.py or analysis.py" if max_analyses else "program.py"
         path_doc = '"program.py" or "analysis.py".' if max_analyses else '"program.py".'
+        read_target, read_doc = target, path_doc
+        if self.resource_names:
+            read_target = f"{target} or a task resource"
+            read_doc = (
+                path_doc[:-1] + f', or a resource path such as "{sorted(self.resource_names)[0]}".'
+            )
 
         @tool(
-            description=f"Read the current content of {target}.",
-            parameters={"path": path_doc},
+            description=f"Read the current content of {read_target}.",
+            parameters={"path": read_doc},
         )
         async def read(path: str) -> str:
             if error := island._file_error(path):
@@ -456,7 +501,7 @@ class Island:
             parameters={"path": path_doc, "content": "Full new file content."},
         )
         async def write(path: str, content: str) -> str:
-            if error := island._file_error(path):
+            if error := island._file_error(path, writing=True):
                 return error
             island._set_file(path, content)
             return f"wrote {len(content)} chars to {path}"
@@ -470,7 +515,7 @@ class Island:
             },
         )
         async def edit(path: str, old_text: str, new_text: str) -> str:
-            if error := island._file_error(path):
+            if error := island._file_error(path, writing=True):
                 return error
             content = island._get_file(path)
             count = content.count(old_text)

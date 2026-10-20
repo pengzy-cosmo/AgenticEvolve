@@ -2,7 +2,7 @@
 
 Runs the same evaluator.py through the same subprocess Executor as our
 framework, so both systems face identical execution constraints: fresh temp
-dir, pinned BLAS threads, 60 s hard kill of the process group. Every call is
+dir, sandbox, pinned BLAS threads, hard kill of the process group. Every call is
 appended to a per-process evals-<pid>.jsonl in $EVOLVE_EVAL_LOG_DIR.
 
 Failures return zero fitness with placeholder features so OpenEvolve can
@@ -24,8 +24,9 @@ from agentic_evolve.executor import EvaluationError, Executor
 
 # run.py points this at the run's snapshot so evaluation is immune to
 # workspace edits made while the run is in flight.
-_cfg = load_config(Path(os.environ["EVOLVE_TASK_DIR"]) / "config.yaml")
-_executor = Executor(_cfg.executor, Path(_cfg.task.evaluator))
+_snapshot = Path(os.environ["EVOLVE_TASK_DIR"])
+_cfg = load_config(_snapshot / "config.yaml")
+_executor = Executor(_cfg.executor, _cfg.task, _snapshot.parent)
 
 # Zero fitness and zero features, so OpenEvolve can still store and bin the program.
 FAILURE_METRICS = {_cfg.map_elites.fitness: 0.0} | {f: 0.0 for f in _cfg.map_elites.features}

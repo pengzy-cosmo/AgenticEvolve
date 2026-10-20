@@ -1,7 +1,7 @@
 task:
   initial_program: initial_program.py
   evaluator: evaluator.py
-  data: data
+  resources: data
   description: |
     Symbolic regression: find the mathematical structure behind observed
     data with three inputs (x0, x1, x2) and one output. Evolve

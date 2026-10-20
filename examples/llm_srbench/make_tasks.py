@@ -119,7 +119,7 @@ def main():
             "task": {
                 "initial_program": "initial_program.py",
                 "evaluator": "evaluator.py",
-                "data": "data",
+                "resources": "data",
                 "description": _description(p),
             },
             "llm": {"model": "deepseek-flash"},

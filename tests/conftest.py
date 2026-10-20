@@ -82,17 +82,18 @@ def run_task(monkeypatch, tmp_path):
         compact_threshold: float = 0.7,
         safety_threshold: float = 0.9,
         timeout: float = 2.0,
+        sandbox: str = "auto",
         initial_program: str = "SCORE = 0\nFEATURE = 0\n",
         evaluator: str = DEFAULT_EVALUATOR,
-        data: dict[str, str] | None = None,
+        resources: dict[str, str] | None = None,
     ) -> Path:
         task_dir = tmp_path / "task"
         task_dir.mkdir()
         (task_dir / "initial_program.py").write_text(initial_program)
         (task_dir / "evaluator.py").write_text(evaluator)
-        if data is not None:
+        if resources is not None:  # published to the model as data/
             (task_dir / "data").mkdir()
-            for filename, content in data.items():
+            for filename, content in resources.items():
                 (task_dir / "data" / filename).write_text(content)
 
         llm = {"model": "deepseek-flash"}
@@ -119,8 +120,8 @@ def run_task(monkeypatch, tmp_path):
             "evaluator": "evaluator.py",
             "description": "Improve SCORE while preserving diverse FEATURE values.",
         }
-        if data is not None:
-            task["data"] = "data"
+        if resources is not None:
+            task["resources"] = "data"
 
         config_path = task_dir / "config.yaml"
         config_path.write_text(
@@ -134,7 +135,7 @@ def run_task(monkeypatch, tmp_path):
                         "features": ["feature"],
                         "feature_bins": 10,
                     },
-                    "executor": {"timeout": timeout, "output_limit": 10_000},
+                    "executor": {"timeout": timeout, "output_limit": 10_000, "sandbox": sandbox},
                     "compact": {
                         "compact_threshold": compact_threshold,
                         "safety_threshold": safety_threshold,

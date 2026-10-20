@@ -17,9 +17,9 @@ def feedback_section(feedback: str, heading: str) -> str:
     return feedback.split(f"{heading}:\n", 1)[1].split("\n\n", 1)[0]
 
 
-async def test_task_data_supports_analysis_guided_evolution(run_task):
+async def test_task_resources_support_analysis_guided_evolution(run_task):
     async def scenario(agent, prompt):
-        assert "the task data in data/" in agent.system
+        assert "data/cases.txt (0.0 kB)" in agent.system
         await agent.call(
             "write",
             path="analysis.py",
@@ -38,7 +38,7 @@ async def test_task_data_supports_analysis_guided_evolution(run_task):
         yield usage(100)
         await agent.call("commit", description="used the observed cases to find the worst case")
 
-    run_dir = await run_task(scenario, data={"cases.txt": "2 4 7\n"})
+    run_dir = await run_task(scenario, resources={"cases.txt": "2 4 7\n"})
     record = archive_records(run_dir)[0]
 
     assert record["metrics"]["score"] == 49.0
@@ -454,7 +454,7 @@ def evaluate(program_path):
 async def test_no_analysis_arm_removes_the_analysis_capability(run_task):
     """max_analyses_per_commit=0 removes run_analysis, analysis.py, and every
     mention of the analysis environment from the model's world; evolution
-    proceeds on program.py alone."""
+    proceeds on program.py alone. Task resources stay listed and readable."""
 
     prompts = []
 
@@ -463,13 +463,16 @@ async def test_no_analysis_arm_removes_the_analysis_capability(run_task):
         yield usage(100)
         assert set(agent.tools) == {"read", "write", "edit", "commit", "read_commit"}
         assert "analysis" not in agent.system
-        assert "data/" not in agent.system  # no execution, so no data environment
+        assert "data/cases.txt" in agent.system
         error = await agent.call("write", path="analysis.py", content="print(1)\n")
-        assert error == "error: unknown path 'analysis.py'; use \"program.py\""
+        assert error == (
+            "error: unknown path 'analysis.py'; use \"program.py\" or a task resource path"
+        )
+        assert await agent.call("read", path="data/cases.txt") == "1\n"
         await agent.call("write", path="program.py", content="SCORE = 1\nFEATURE = 0.5\n")
         await agent.call("commit", description="no analysis capability")
 
-    run_dir = await run_task(scenario, max_analyses_per_commit=0, data={"cases.txt": "1\n"})
+    run_dir = await run_task(scenario, max_analyses_per_commit=0, resources={"cases.txt": "1\n"})
     record = archive_records(run_dir)[0]
 
     assert "commits 0/1" in prompts[0]  # the opening message states the budget
@@ -505,9 +508,9 @@ async def test_analysis_budget_is_per_commit_cycle(run_task):
     assert succeeded["behavior"]["run_analysis_count"] == 1
 
 
-async def test_analysis_environment_holds_data_and_nothing_else(run_task):
-    """The data directory is copied into every analysis execution; no other
-    task file (the evaluator included) is present."""
+async def test_analysis_environment_holds_resources_and_nothing_else(run_task):
+    """The resources directory is copied into every analysis execution; no
+    other task file (the evaluator included) is present."""
 
     outputs = []
 
@@ -526,7 +529,7 @@ async def test_analysis_environment_holds_data_and_nothing_else(run_task):
         await agent.call("write", path="program.py", content="SCORE = 1\nFEATURE = 0.5\n")
         await agent.call("commit", description="data probe")
 
-    await run_task(scenario, data={"cases.txt": "public cases\n"})
+    await run_task(scenario, resources={"cases.txt": "public cases\n"})
 
     assert "public cases\n['analysis.py', 'data', 'program.py']" in outputs[0]
 

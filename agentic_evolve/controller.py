@@ -31,10 +31,7 @@ class Controller:
         session_dir.mkdir(parents=True, exist_ok=True)
 
         archive = Archive(self.cfg.map_elites, self.cfg.evolution.num_islands, self.run_dir)
-        task = self.cfg.task
-        executor = Executor(
-            self.cfg.executor, Path(task.evaluator), Path(task.data) if task.data else None
-        )
+        executor = Executor(self.cfg.executor, self.cfg.task, self.run_dir)
         initial_program = Path(self.cfg.task.initial_program).read_text()
         started = perf_counter()
         initial_metrics = await executor.evaluate(initial_program)

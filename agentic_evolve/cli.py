@@ -33,7 +33,7 @@ def main() -> None:
     shutil.copytree(
         task_src, run_dir / "task", ignore=shutil.ignore_patterns("__pycache__", ".DS_Store")
     )
-    for field in ("initial_program", "evaluator", "data"):
+    for field in ("initial_program", "evaluator", "resources"):
         src = getattr(config.task, field)
         if src is not None:
             setattr(config.task, field, str(Path("task") / Path(src).relative_to(task_src)))

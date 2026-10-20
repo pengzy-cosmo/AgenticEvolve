@@ -13,7 +13,7 @@ class TaskConfig:
     initial_program: str
     evaluator: str
     description: str
-    data: str | None = None
+    resources: str | None = None
 
 
 @dataclass
@@ -36,7 +36,7 @@ class EvolutionConfig:
     migration_rate: float = 0.3
     max_total_tokens: int | None = None
     max_requests: int | None = None
-    max_idle_turns: int | None = None
+    max_idle_turns: int = 5
 
     def __post_init__(self) -> None:
         if self.max_analyses_per_commit < 0:
@@ -54,6 +54,11 @@ class MapElitesConfig:
 class ExecutorConfig:
     timeout: float = 120.0
     output_limit: int = 10_000
+    sandbox: str = "auto"
+
+    def __post_init__(self) -> None:
+        if self.sandbox not in ("auto", "required", "disabled"):
+            raise ValueError('sandbox must be "auto", "required" or "disabled"')
 
 
 @dataclass
@@ -81,6 +86,15 @@ def _merge(base: dict, override: dict) -> dict:
     return base
 
 
+def _check_self_contained(root: Path) -> None:
+    """Reject resource symlinks that would copy files from outside the directory."""
+
+    resolved = root.resolve()
+    for path in root.rglob("*"):
+        if path.is_symlink() and not path.resolve().is_relative_to(resolved):
+            raise ValueError(f"resources symlink {path} points outside {root}")
+
+
 def load_config(path: str | Path, override: str | Path | None = None) -> Config:
     """Load and optionally override a run config."""
 
@@ -92,9 +106,11 @@ def load_config(path: str | Path, override: str | Path | None = None) -> Config:
 
     task = TaskConfig(**raw["task"])
     base = path.resolve().parent
-    for field in ("initial_program", "evaluator", "data"):
+    for field in ("initial_program", "evaluator", "resources"):
         if (value := getattr(task, field)) is not None:
             setattr(task, field, str(base / value))
+    if task.resources is not None:
+        _check_self_contained(Path(task.resources))
 
     return Config(
         task=task,

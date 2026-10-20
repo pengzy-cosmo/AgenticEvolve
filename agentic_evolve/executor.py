@@ -1,8 +1,8 @@
-"""Temp-dir subprocess execution for analysis runs and formal evaluation.
+"""Subprocess execution of analysis runs and formal evaluations.
 
-Each execution gets a fresh temp directory and process group. Timeout and
-cancellation kill the group. Filesystem permissions remain those of the host
-user; system-level sandboxing belongs in this execution backend.
+Executions use fresh temporary directories, a restricted environment, and
+optional OS sandboxing. The evaluator and candidate share a process and read
+permissions, including access to private evaluator inputs.
 
 Analysis output is returned to the model. Evaluation failures return a summary
 of the runner's exception record, keeping raw stdout and stderr in the archive.
@@ -13,18 +13,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from agentic_evolve.config import ExecutorConfig
+from agentic_evolve.config import ExecutorConfig, TaskConfig
+
+logger = logging.getLogger(__name__)
 
 _RUNNER_PATH = Path(__file__).parent / "_eval_runner.py"
 METRICS_FILENAME = "metrics.json"
 ERROR_FILENAME = "error.json"
+# -E ignores PYTHON* variables, -s skips the user site-packages directory.
+_INTERPRETER = [sys.executable, "-E", "-s"]
 
 
 class EvaluationError(Exception):
@@ -37,15 +43,13 @@ class EvaluationError(Exception):
 
 
 class Executor:
-    def __init__(
-        self,
-        cfg: ExecutorConfig,
-        evaluator_path: Path,
-        data: Path | None = None,
-    ):
+    def __init__(self, cfg: ExecutorConfig, task: TaskConfig, run_dir: Path):
         self.cfg = cfg
-        self.evaluator_path = Path(evaluator_path).resolve()
-        self.data = Path(data).resolve() if data else None
+        self.evaluator_path = Path(task.evaluator).resolve()
+        self.resources = Path(task.resources).resolve() if task.resources else None
+        self.run_dir = Path(run_dir).resolve()
+        self.sandbox = _select_sandbox(cfg.sandbox)
+        logger.info("execution sandbox: %s", self.sandbox or "none")
 
     async def run_analysis(self, program: str, analysis: str) -> tuple[str, str]:
         """Run analysis.py next to program.py; return (status, truncated output text)."""
@@ -54,9 +58,8 @@ class Executor:
         try:
             (tmp / "program.py").write_text(program)
             (tmp / "analysis.py").write_text(analysis)
-            if self.data is not None:
-                shutil.copytree(self.data, tmp / self.data.name)
-            code, out, err, timed_out = await self._run([sys.executable, "analysis.py"], tmp)
+            self._copy_resources(tmp)
+            code, out, err, timed_out = await self._run([*_INTERPRETER, "analysis.py"], tmp)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -81,16 +84,17 @@ class Executor:
         tmp = Path(tempfile.mkdtemp(prefix="evolve-eval-"))
         try:
             (tmp / "program.py").write_text(program)
+            self._copy_resources(tmp)
             metrics_path, error_path = tmp / METRICS_FILENAME, tmp / ERROR_FILENAME
             cmd = [
-                sys.executable,
+                *_INTERPRETER,
                 str(_RUNNER_PATH),
                 str(self.evaluator_path),
                 str(tmp / "program.py"),
                 str(metrics_path),
                 str(error_path),
             ]
-            code, out, err, timed_out = await self._run(cmd, tmp)
+            code, out, err, timed_out = await self._run(cmd, tmp, evaluation=True)
             if timed_out:
                 raise EvaluationError(
                     f"evaluation timed out after {self.cfg.timeout}s", status="timeout"
@@ -116,14 +120,17 @@ class Executor:
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    async def _run(self, cmd: list[str], cwd: Path) -> tuple[int | None, str, str, bool]:
-        """Run one subprocess in its own process group; kill the group on timeout or cancel.
+    def _copy_resources(self, tmp: Path) -> None:
+        if self.resources is not None:
+            shutil.copytree(self.resources, tmp / self.resources.name)
 
-        HOME and the temp-dir variables point into the ephemeral working
-        directory; BLAS/OpenMP threads are pinned to avoid oversubscription.
-        """
+    async def _run(
+        self, cmd: list[str], cwd: Path, *, evaluation: bool = False
+    ) -> tuple[int | None, str, str, bool]:
+        """Run with a restricted environment and clean up on timeout or cancellation."""
 
-        env = os.environ | {key: str(cwd) for key in ("HOME", "TMPDIR", "TMP", "TEMP")}
+        env = {"PATH": os.environ.get("PATH", os.defpath)}
+        env |= {key: str(cwd) for key in ("HOME", "TMPDIR", "TMP", "TEMP")}
         env |= {
             key: "1"
             for key in (
@@ -133,10 +140,13 @@ class Executor:
                 "VECLIB_MAXIMUM_THREADS",
             )
         }
+        if self.sandbox is not None:
+            cmd = self._sandboxed(cmd, cwd.resolve(), evaluation)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=cwd,
             env=env,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
@@ -155,6 +165,25 @@ class Executor:
             self._truncate(err.decode(errors="replace")),
             False,
         )
+
+    def _sandboxed(self, cmd: list[str], cwd: Path, evaluation: bool) -> list[str]:
+        """Wrap cmd in the platform sandbox; cwd is the only writable location."""
+
+        readable = [
+            Path(sys.base_prefix).resolve(),
+            Path(sys.prefix).resolve(),
+            _RUNNER_PATH.parent.resolve(),
+            cwd,
+        ]
+        if evaluation:
+            readable.append(self.evaluator_path.parent)
+        if self.sandbox == "sandbox-exec":
+            import pwd
+
+            home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+            hidden = [home, self.run_dir, self.evaluator_path.parent]
+            return ["sandbox-exec", "-p", _seatbelt_profile(readable, cwd, hidden), *cmd]
+        return [*_bwrap_args(readable, cwd), *cmd]
 
     def _summary(self, error: dict) -> str:
         """Keep messages raised in evaluator code; summarize candidate and library errors
@@ -183,9 +212,93 @@ class Executor:
 
     @staticmethod
     async def _kill_group(proc: asyncio.subprocess.Process) -> None:
-        # start_new_session=True makes the child a session leader, so its pid is the pgid.
+        # On POSIX, start_new_session=True makes the child's PID its process group ID.
+        # On Windows, this terminates only the direct child.
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            if sys.platform == "win32":
+                proc.kill()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         await proc.wait()
+
+
+def _select_sandbox(mode: str) -> str | None:
+    """Select the platform sandbox; raise or warn if unavailable, according to mode."""
+
+    if mode == "disabled":
+        return None
+    if sys.platform == "darwin":
+        tool, problem = "sandbox-exec", None
+    elif sys.platform == "linux":
+        tool, problem = "bwrap", _bwrap_problem()
+    else:
+        tool, problem = "", f"no sandbox is available on {sys.platform}"
+    if problem is None:
+        return tool
+    if mode == "required":
+        raise RuntimeError(
+            f"{problem}; set executor.sandbox to auto or disabled to run without one"
+        )
+    logger.warning("running without a sandbox: %s", problem)
+    return None
+
+
+def _bwrap_problem() -> str | None:
+    """Probe namespace creation, which host policy may restrict even with bwrap installed."""
+
+    if shutil.which("bwrap") is None:
+        return "bwrap not found (install bubblewrap)"
+    probe = subprocess.run(
+        ["bwrap", "--unshare-all", "--die-with-parent", "--ro-bind", "/", "/", "/bin/true"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if probe.returncode != 0:
+        return f"bwrap cannot create a sandbox: {probe.stderr.strip()}"
+    return None
+
+
+def _seatbelt_profile(readable: list[Path], writable: Path, hidden: list[Path]) -> str:
+    """macOS Seatbelt profile. A later rule wins, so the readable paths inside the
+    hidden directories are allowed after the deny. Metadata stays readable
+    everywhere; the interpreter cannot start without it."""
+
+    def subpaths(paths: list[Path]) -> str:
+        return " ".join(f'(subpath "{_quote(path)}")' for path in paths)
+
+    return "\n".join(
+        [
+            "(version 1)",
+            "(allow default)",
+            "(deny network*)",
+            f"(deny file-read* {subpaths(hidden)})",
+            "(allow file-read-metadata)",
+            f"(allow file-read* {subpaths(readable)})",
+            "(deny file-write*)",
+            f"(allow file-write* {subpaths([writable])})",
+        ]
+    )
+
+
+def _quote(path: Path) -> str:
+    return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _bwrap_args(readable: list[Path], writable: Path) -> list[str]:
+    """bubblewrap invocation: only the system directories and the readable paths
+    are mounted; unsharing every namespace removes the network."""
+
+    args = ["bwrap", "--unshare-all", "--die-with-parent", "--proc", "/proc", "--dev", "/dev"]
+    args += ["--tmpfs", "/tmp"]
+    for path in ("/usr", "/etc", "/bin", "/sbin", "/lib", "/lib64"):
+        if os.path.islink(path):  # merged-usr distributions
+            args += ["--symlink", os.readlink(path), path]
+        elif os.path.isdir(path):
+            args += ["--ro-bind", path, path]
+    for path in readable:
+        args += ["--ro-bind", str(path), str(path)]
+    args += ["--bind", str(writable), str(writable), "--chdir", str(writable)]
+    return args

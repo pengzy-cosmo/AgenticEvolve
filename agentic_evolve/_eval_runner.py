@@ -19,8 +19,9 @@ from pathlib import Path
 def main() -> None:
     evaluator_path, program_path, metrics_path, error_path = sys.argv[1:5]
     try:
-        # Let the evaluator import siblings from its own directory.
-        sys.path.insert(0, str(Path(evaluator_path).parent))
+        # The program imports the task resources copied next to it, as in
+        # analysis runs; the evaluator imports siblings from its own directory.
+        sys.path[:0] = [str(Path(program_path).parent), str(Path(evaluator_path).parent)]
         spec = importlib.util.spec_from_file_location("evaluator", evaluator_path)
         if spec is None or spec.loader is None:
             raise RuntimeError(f"cannot load evaluator: {evaluator_path}")
