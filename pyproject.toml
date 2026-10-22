@@ -7,6 +7,7 @@ name = "python-agentic-evolve"
 version = "0.3.0"
 description = "AgenticEvolve: LLM program evolution by persistent agentic sessions."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "mycode-sdk>=0.16.0",
