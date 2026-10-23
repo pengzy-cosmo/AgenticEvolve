@@ -169,12 +169,9 @@ class Executor:
     def _sandboxed(self, cmd: list[str], cwd: Path, evaluation: bool) -> list[str]:
         """Wrap cmd in the platform sandbox; cwd is the only writable location."""
 
-        readable = [
-            Path(sys.base_prefix).resolve(),
-            Path(sys.prefix).resolve(),
-            _RUNNER_PATH.parent.resolve(),
-            cwd,
-        ]
+        readable = [Path(sys.prefix), Path(sys.base_prefix), _RUNNER_PATH.parent, cwd]
+        if (home := _venv_home(Path(sys.prefix))) is not None:
+            readable.append(home)
         if evaluation:
             readable.append(self.evaluator_path.parent)
         if self.sandbox == "sandbox-exec":
@@ -261,13 +258,31 @@ def _bwrap_problem() -> str | None:
     return None
 
 
+def _venv_home(prefix: Path) -> Path | None:
+    """The base interpreter directory as the virtual environment at prefix refers
+    to it (pyvenv.cfg's home is its bin directory), or None outside a venv. uv
+    installs interpreters in version directories reached through an alias
+    symlink; venvs refer to the alias while sys.base_prefix is the resolved
+    directory, and the venv's python symlink goes through the alias."""
+
+    cfg = prefix / "pyvenv.cfg"
+    if not cfg.exists():
+        return None
+    for line in cfg.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "home":
+            return Path(value.strip()).parent
+    return None
+
+
 def _seatbelt_profile(readable: list[Path], writable: Path, hidden: list[Path]) -> str:
     """macOS Seatbelt profile. A later rule wins, so the readable paths inside the
     hidden directories are allowed after the deny. Metadata stays readable
-    everywhere; the interpreter cannot start without it."""
+    everywhere; the interpreter cannot start without it. Seatbelt matches
+    resolved paths."""
 
     def subpaths(paths: list[Path]) -> str:
-        return " ".join(f'(subpath "{_quote(path)}")' for path in paths)
+        return " ".join(f'(subpath "{_quote(path.resolve())}")' for path in paths)
 
     return "\n".join(
         [
@@ -298,7 +313,10 @@ def _bwrap_args(readable: list[Path], writable: Path) -> list[str]:
             args += ["--symlink", os.readlink(path), path]
         elif os.path.isdir(path):
             args += ["--ro-bind", path, path]
-    for path in readable:
+    # Mount each path as spelled and as resolved: programs use the spelled path,
+    # symlinks inside the mounts may use the resolved one.
+    mounts = dict.fromkeys(p for path in readable for p in (path, path.resolve()))
+    for path in mounts:
         args += ["--ro-bind", str(path), str(path)]
     args += ["--bind", str(writable), str(writable), "--chdir", str(writable)]
     return args

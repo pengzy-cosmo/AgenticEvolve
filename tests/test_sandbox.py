@@ -10,6 +10,7 @@ from conftest import usage
 from test_evolution import archive_records
 
 from agentic_evolve.config import load_config
+from agentic_evolve.executor import _bwrap_args, _venv_home
 
 PROBE = """\
 import os, socket
@@ -107,6 +108,25 @@ async def test_resources_are_readable_importable_and_read_only(run_task):
 
     assert outputs[0].startswith("stdout:\n7 1.0\n")
     assert archive_records(run_dir)[0]["metrics"] == {"score": 7.0, "feature": 1.0}
+
+
+def test_bwrap_mounts_the_interpreter_as_the_venv_refers_to_it(tmp_path):
+    """A venv whose python link and pyvenv.cfg go through an alias symlink of the
+    base interpreter directory (uv's layout) needs the alias mounted too."""
+
+    base = tmp_path / "cpython-3.14.7"
+    (base / "bin").mkdir(parents=True)
+    alias = tmp_path / "cpython-3.14"
+    alias.symlink_to(base)
+    venv = tmp_path / "venv"
+    venv.mkdir()
+    (venv / "pyvenv.cfg").write_text(f"home = {alias}/bin\nversion_info = 3.14.7\n")
+
+    assert _venv_home(venv) == alias
+    assert _venv_home(tmp_path) is None
+    mounts = " ".join(_bwrap_args([venv, base, alias], tmp_path / "work"))
+    assert f"--ro-bind {alias} {alias}" in mounts
+    assert f"--ro-bind {base} {base}" in mounts
 
 
 def test_resources_must_be_self_contained(tmp_path):

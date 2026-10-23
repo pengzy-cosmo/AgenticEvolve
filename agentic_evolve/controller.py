@@ -15,7 +15,7 @@ from time import perf_counter
 
 from agentic_evolve.archive import Archive
 from agentic_evolve.config import Config
-from agentic_evolve.executor import Executor
+from agentic_evolve.executor import EvaluationError, Executor
 from agentic_evolve.island import Island
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,11 @@ class Controller:
         executor = Executor(self.cfg.executor, self.cfg.task, self.run_dir)
         initial_program = Path(self.cfg.task.initial_program).read_text()
         started = perf_counter()
-        initial_metrics = await executor.evaluate(initial_program)
+        try:
+            initial_metrics = await executor.evaluate(initial_program)
+        except EvaluationError as exc:
+            logger.error("initial program failed evaluation: %s\n%s", exc, exc.output)
+            raise
         (self.run_dir / "initial.json").write_text(
             json.dumps(
                 {
