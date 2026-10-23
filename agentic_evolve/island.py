@@ -19,7 +19,17 @@ from pathlib import Path
 from time import perf_counter
 from typing import cast
 
-from mycode import Agent, ToolExecutionResult, ToolSpec, tool
+from mycode import (
+    Agent,
+    CancelledEvent,
+    ErrorEvent,
+    RetryEvent,
+    TextEvent,
+    ToolExecutionResult,
+    ToolSpec,
+    UsageEvent,
+    tool,
+)
 from mycode.tools import AsyncToolRunner
 
 from agentic_evolve.archive import Archive, Behavior, CommitRecord
@@ -161,11 +171,6 @@ without this conversation. Write a concise handoff covering exactly:
 """
 
 
-async def _stamp_timestamp(message: dict) -> None:
-    """on_persist callback: stamp every session message before it is stored."""
-    message.setdefault("meta", {})["timestamp"] = datetime.now(UTC).isoformat()
-
-
 class Island:
     def __init__(
         self,
@@ -257,18 +262,18 @@ class Island:
     async def _run_turn(self, prompt: str) -> None:
         self._cancel_requested = False
         self.idle_turns += 1
-        async for event in self.agent.achat(prompt, on_persist=_stamp_timestamp):
-            if event.type == "usage":
-                self._on_usage(event.data.get("context_tokens"))
-            elif event.type == "retry":
-                self._log_retry(event.data)
-            elif event.type == "cancelled":
-                if not self._cancel_requested:
-                    raise asyncio.CancelledError
-                logger.info("island %d: turn cancelled by framework", self.id)
-            elif event.type == "error":
-                message = str(event.data.get("message") or "")
-                raise RuntimeError(f"island {self.id}: agent error: {message}")
+        async for event in self.agent.achat(prompt):
+            match event:
+                case UsageEvent():
+                    self._on_usage(event.context_tokens)
+                case RetryEvent():
+                    self._log_retry(event)
+                case CancelledEvent():
+                    if not self._cancel_requested:
+                        raise asyncio.CancelledError
+                    logger.info("island %d: turn cancelled by framework", self.id)
+                case ErrorEvent():
+                    raise RuntimeError(f"island {self.id}: agent error: {event.message}")
 
     def _on_usage(self, context_tokens: int | None) -> None:
         self.behavior.context_tokens = context_tokens
@@ -303,15 +308,15 @@ class Island:
         elif context_tokens >= window * self.cfg.compact.safety_threshold:
             self._cancel_turn(f"context safety threshold reached at {context_tokens} tokens")
 
-    def _log_retry(self, data: dict) -> None:
+    def _log_retry(self, event: RetryEvent) -> None:
         logger.warning(
-            "island %d: model request retry %s/%s in %ss | %s | %s",
+            "island %d: model request retry %d/%d in %ss | %s | %s",
             self.id,
-            data.get("attempt", "?"),
-            data.get("max_attempts", "?"),
-            data.get("delay_seconds", "?"),
-            data.get("reason", "unknown"),
-            data.get("message", ""),
+            event.attempt,
+            event.max_attempts,
+            event.delay_seconds,
+            event.reason,
+            event.message,
         )
 
     def _cancel_turn(self, reason: str, level: int = logging.WARNING) -> None:
@@ -350,24 +355,22 @@ class Island:
 
         summarizer = self._make_agent(self.agent.session_id, summary_mode=True)
         parts: list[str] = []
-        async for event in summarizer.achat(SUMMARY_INSTRUCTION, on_persist=_stamp_timestamp):
-            if event.type == "text":
-                parts.append(str(event.data.get("delta") or ""))
-            elif event.type == "usage":
-                self.request_count += 1  # the summary is a model request too
-                max_requests = self.cfg.evolution.max_requests
-                if max_requests is not None and self.request_count >= max_requests:
-                    self.requests_exhausted = True
-                context_tokens = event.data.get("context_tokens")
-                if context_tokens is not None:
-                    self.context_tokens = context_tokens
-                    self.total_tokens = self.completed_context_tokens + context_tokens
-            elif event.type == "retry":
-                self._log_retry(event.data)
-            elif event.type == "error":
-                raise RuntimeError(
-                    f"island {self.id}: summary call failed: {event.data.get('message')}"
-                )
+        async for event in summarizer.achat(SUMMARY_INSTRUCTION):
+            match event:
+                case TextEvent():
+                    parts.append(event.delta)
+                case UsageEvent():
+                    self.request_count += 1  # the summary is a model request too
+                    max_requests = self.cfg.evolution.max_requests
+                    if max_requests is not None and self.request_count >= max_requests:
+                        self.requests_exhausted = True
+                    if event.context_tokens is not None:
+                        self.context_tokens = event.context_tokens
+                        self.total_tokens = self.completed_context_tokens + event.context_tokens
+                case RetryEvent():
+                    self._log_retry(event)
+                case ErrorEvent():
+                    raise RuntimeError(f"island {self.id}: summary call failed: {event.message}")
         return "".join(parts)
 
     # ------------------------------------------------------------------

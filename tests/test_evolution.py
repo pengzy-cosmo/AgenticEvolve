@@ -6,7 +6,7 @@ import asyncio
 import json
 
 from conftest import usage
-from mycode import Event
+from mycode import TextEvent
 
 
 def archive_records(run_dir):
@@ -332,7 +332,7 @@ async def test_token_budget_uses_current_context_before_compaction(run_task):
 async def test_compaction_handoff_continues_the_evolution(run_task):
     async def scenario(agent, prompt):
         if not agent.tools:
-            yield Event("text", {"delta": "The next step is to set SCORE to 5."})
+            yield TextEvent(delta="The next step is to set SCORE to 5.")
             yield usage(650)
             return
         if agent.session_id == "0":

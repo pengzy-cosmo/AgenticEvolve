@@ -8,7 +8,7 @@ from typing import ClassVar
 
 import pytest
 import yaml
-from mycode import Event
+from mycode import CancelledEvent, Event, UsageEvent
 
 from agentic_evolve.config import load_config
 from agentic_evolve.controller import Controller
@@ -35,7 +35,7 @@ class ScriptedAgent:
         async for event in type(self).scenario(self, prompt):
             yield event
             if self.cancelled:
-                yield Event("cancelled", {})
+                yield CancelledEvent()
                 return
 
     async def call(self, name: str, **args) -> str:
@@ -48,7 +48,7 @@ class ScriptedAgent:
 
 
 def usage(tokens: int) -> Event:
-    return Event("usage", {"context_tokens": tokens})
+    return UsageEvent(context_tokens=tokens, turn_usage={}, turn_cost=None, turn_duration_ms=None)
 
 
 DEFAULT_EVALUATOR = """\

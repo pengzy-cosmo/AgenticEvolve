@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["matplotlib", "mycode-sdk>=0.16.0", "pyyaml"]
+# dependencies = ["matplotlib", "mycode-sdk>=0.21.0,<0.22", "pyyaml"]
 # ///
 """Anytime curves for one or more runs.
 
@@ -31,7 +31,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import yaml
-from mycode.models import estimate_cost, infer_provider_from_model, lookup_model_metadata
+from mycode.models import infer_provider_from_model, resolve_model_metadata
+from mycode.usage import estimate_cost
 
 
 @dataclass
@@ -63,7 +64,9 @@ def _load_agentic_run(run_dir: Path, name: str) -> RunData:
         for line in messages.read_text().splitlines():
             meta = json.loads(line).get("meta") or {}
             if meta.get("usage"):
-                requests.append((datetime.fromisoformat(meta["timestamp"]), meta["usage"], model))
+                # Older runs stamped meta.timestamp themselves; mycode now stamps created_at.
+                stamp = meta.get("created_at") or meta["timestamp"]
+                requests.append((datetime.fromisoformat(stamp), meta["usage"], model))
     requests.sort(key=lambda r: r[0])
 
     provider = config["llm"].get("provider") or infer_provider_from_model(model)
@@ -115,8 +118,9 @@ def request_costs(run: RunData) -> list[tuple[datetime, float]] | None:
         if usage is None:
             continue
         if model not in pricing:
-            meta = lookup_model_metadata(provider_type=run.provider, model=model)
-            pricing[model] = meta.pricing if meta else None
+            pricing[model] = resolve_model_metadata(
+                provider=run.provider or "", model=model
+            ).pricing
         cost = estimate_cost(usage, pricing[model])
         if cost is None:
             return None
