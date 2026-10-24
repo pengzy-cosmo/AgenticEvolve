@@ -103,7 +103,7 @@ class Executor:
             if code != 0:
                 if error_path.exists():
                     raise EvaluationError(
-                        self._summary(json.loads(error_path.read_text())), output=output
+                        self._summary(json.loads(error_path.read_text()), tmp), output=output
                     )
                 raise EvaluationError(f"evaluator exited with code {code}", output=output)
             if not metrics_path.exists():
@@ -182,20 +182,27 @@ class Executor:
             return ["sandbox-exec", "-p", _seatbelt_profile(readable, cwd, hidden), *cmd]
         return [*_bwrap_args(readable, cwd), *cmd]
 
-    def _summary(self, error: dict) -> str:
-        """Keep messages raised in evaluator code; summarize candidate and library errors
-        by builtin exception type and source location. Custom types become Exception.
+    def _summary(self, error: dict, cwd: Path) -> str:
+        """Keep messages raised in task code: the evaluator's directory and the
+        resources copied into cwd. Summarize candidate and library errors by
+        builtin exception type and source location. Custom types become Exception.
         """
-        evaluator_dir = self.evaluator_path.parent
+        task_dirs = [self.evaluator_path.parent]
+        if self.resources is not None:
+            task_dirs.append(cwd / self.resources.name)
+
+        def in_task(path: str) -> bool:
+            return any(Path(path).is_relative_to(d) for d in task_dirs)
+
         frames = error["frames"][1:]  # the first frame is the runner's own call
-        if frames and Path(frames[-1][0]).is_relative_to(evaluator_dir):
+        if frames and in_task(frames[-1][0]):
             return f"{error['type']}: {error['message']}".partition("\n")[0]
         name = error["type"] if error["builtin"] else "Exception"
         library = (sys.prefix, sys.base_prefix)
         program = [
             (path, line)
             for path, line in frames
-            if not Path(path).is_relative_to(evaluator_dir) and not path.startswith(library)
+            if not in_task(path) and not path.startswith(library)
         ]
         if not program:
             return name

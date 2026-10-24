@@ -78,7 +78,8 @@ async def test_environment_is_whitelisted_without_the_sandbox(run_task, tmp_path
 async def test_resources_are_readable_importable_and_read_only(run_task):
     """Resources are served by read, refused by write and edit, and importable
     from program.py in both analysis and evaluation, where the copy in the
-    execution directory is the one imported."""
+    execution directory is the one imported. Errors raised in resource code
+    keep their messages, like evaluator errors."""
 
     outputs = []
     program = (
@@ -91,7 +92,7 @@ async def test_resources_are_readable_importable_and_read_only(run_task):
 
     async def scenario(agent, prompt):
         yield usage(100)
-        assert await agent.call("read", path="data/helper.py") == "VALUE = 7\n"
+        assert (await agent.call("read", path="data/helper.py")).startswith("VALUE = 7\n")
         refused = await agent.call("write", path="data/helper.py", content="VALUE = 8\n")
         assert refused == "error: data/helper.py is a read-only task resource"
         refused = await agent.call("edit", path="data/helper.py", old_text="7", new_text="8")
@@ -103,11 +104,17 @@ async def test_resources_are_readable_importable_and_read_only(run_task):
         await agent.call("write", path="analysis.py", content=analysis)
         outputs.append(await agent.call("run_analysis"))
         await agent.call("commit", description="uses the resource module")
+        await agent.call(
+            "write", path="program.py", content="from data import helper\nhelper.check(-1)\n"
+        )
+        await agent.call("commit", description="invalid input")
 
-    run_dir = await run_task(scenario, resources={"helper.py": "VALUE = 7\n"})
+    helper = "VALUE = 7\n\ndef check(x):\n    if x < 0:\n        raise ValueError(f'x={x} is negative')\n"
+    run_dir = await run_task(scenario, max_commits=2, resources={"helper.py": helper})
 
     assert outputs[0].startswith("stdout:\n7 1.0\n")
     assert archive_records(run_dir)[0]["metrics"] == {"score": 7.0, "feature": 1.0}
+    assert archive_records(run_dir)[1]["error"] == "ValueError: x=-1 is negative"
 
 
 def test_bwrap_mounts_the_interpreter_as_the_venv_refers_to_it(tmp_path):
