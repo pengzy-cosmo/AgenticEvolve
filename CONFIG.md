@@ -44,7 +44,7 @@ map_elites:
 
 executor:
   timeout: 120                         # seconds per evaluation or analysis execution
-  output_limit: 10000                  # character limit per stdout/stderr stream;
+  output_limit: 10000                  # byte limit per stdout/stderr stream;
                                        # analysis returns it, evaluation failures archive it
   sandbox: auto                        # auto, required, or disabled (see below)
 

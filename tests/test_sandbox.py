@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import uuid
 
@@ -23,7 +24,9 @@ def attempt(action):
         return type(exc).__name__
 
 print(attempt(lambda: open({evaluator!r}).read()))
+print(attempt(lambda: open({neighbor!r}).read()))
 print(attempt(lambda: open({outside!r}, "w").write("x")))
+print(attempt(lambda: os.kill({host_pid}, 0)))
 print(attempt(lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM).connect(("1.1.1.1", 53))))
 print("EVOLVE_TEST_SECRET" in os.environ)
 print(attempt(lambda: open("local.txt", "w").write("x")))
@@ -34,12 +37,15 @@ async def probe_analysis(run_task, tmp_path, **kwargs) -> list[str]:
     """Run PROBE as analysis.py and return its output lines."""
 
     outputs = []
+    (tmp_path / "neighbor.txt").write_text("x")
 
     async def scenario(agent, prompt):
         yield usage(100)
         probe = PROBE.format(
             evaluator=str(tmp_path / "task" / "evaluator.py"),
+            neighbor=str(tmp_path / "neighbor.txt"),
             outside=str(tmp_path / "outside.txt"),
+            host_pid=os.getpid(),
         )
         await agent.call("write", path="analysis.py", content=probe)
         outputs.append(await agent.call("run_analysis"))
@@ -47,19 +53,24 @@ async def probe_analysis(run_task, tmp_path, **kwargs) -> list[str]:
         await agent.call("commit", description="boundary probe")
 
     await run_task(scenario, **kwargs)
-    return outputs[0].removeprefix("stdout:\n").split("\n")[:5]
+    return outputs[0].removeprefix("stdout:\n").split("\n")[:7]
 
 
 async def test_analysis_executions_are_sandboxed(run_task, tmp_path, monkeypatch):
-    """Analysis code cannot read the evaluator, write outside its directory or
-    reach the network, and does not see the framework's environment; its own
-    directory stays writable."""
+    """Block private reads, outside writes, host signals, network and inherited secrets.
+
+    The neighbor file is under the temporary root, like other executions.
+    """
 
     monkeypatch.setenv("EVOLVE_TEST_SECRET", "hidden")
-    evaluator, outside, network, secret, local = await probe_analysis(run_task, tmp_path)
+    evaluator, neighbor, outside, signal, network, secret, local = await probe_analysis(
+        run_task, tmp_path
+    )
 
     assert evaluator != "allowed"
+    assert neighbor != "allowed"
     assert outside != "allowed" and not (tmp_path / "outside.txt").exists()
+    assert signal != "allowed"
     assert network != "allowed"
     assert secret == "False"
     assert local == "allowed"
@@ -67,11 +78,9 @@ async def test_analysis_executions_are_sandboxed(run_task, tmp_path, monkeypatch
 
 async def test_environment_is_whitelisted_without_the_sandbox(run_task, tmp_path, monkeypatch):
     monkeypatch.setenv("EVOLVE_TEST_SECRET", "hidden")
-    evaluator, outside, network, secret, local = await probe_analysis(
-        run_task, tmp_path, sandbox="disabled"
-    )
+    lines = await probe_analysis(run_task, tmp_path, sandbox="disabled")
 
-    assert (evaluator, outside, network, secret, local) == ("allowed",) * 3 + ("False", "allowed")
+    assert lines == ["allowed"] * 5 + ["False", "allowed"]
     (tmp_path / "outside.txt").unlink()
 
 
@@ -159,24 +168,22 @@ def test_resources_must_be_self_contained(tmp_path):
         load_config(task / "config.yaml")
 
 
-async def test_timeout_kills_the_whole_process_tree(run_task):
-    """A timed-out analysis takes its subprocesses down with it."""
+async def test_executions_kill_their_process_group(run_task):
+    """Kill the process group after timeout and normal exit; setsid can escape it."""
 
     marker = f"evolve-sandbox-test-{uuid.uuid4().hex}"
+    spawn = (
+        "import subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)  # {marker}'],"
+        " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+    )
 
     async def scenario(agent, prompt):
         yield usage(100)
-        await agent.call(
-            "write",
-            path="analysis.py",
-            content=(
-                "import subprocess, sys, time\n"
-                f"subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)  # {marker}'])\n"
-                "time.sleep(30)\n"
-            ),
-        )
-        output = await agent.call("run_analysis")
-        assert "timed out" in output
+        await agent.call("write", path="analysis.py", content=spawn + "time.sleep(30)\n")
+        assert "timed out" in await agent.call("run_analysis")
+        await agent.call("write", path="analysis.py", content=spawn)
+        assert (await agent.call("run_analysis")).startswith("(no output)")
         await agent.call("write", path="program.py", content="SCORE = 1\nFEATURE = 0.5\n")
         await agent.call("commit", description="after timeout")
 
@@ -184,3 +191,33 @@ async def test_timeout_kills_the_whole_process_tree(run_task):
 
     survivors = subprocess.run(["pgrep", "-f", marker], capture_output=True, text=True)
     assert survivors.stdout == ""
+
+
+async def test_output_and_result_files_are_read_defensively(run_task, tmp_path):
+    """Truncate output, reject linked metrics and tolerate malformed error records."""
+
+    elsewhere = tmp_path / "elsewhere.json"
+    elsewhere.write_text('{"score": 9.0, "feature": 0.5}')
+    outputs = []
+
+    async def scenario(agent, prompt):
+        yield usage(100)
+        flood = "import sys\nfor _ in range(1000):\n    sys.stdout.write('x' * 1000)\n"
+        await agent.call("write", path="analysis.py", content=flood)
+        outputs.append(await agent.call("run_analysis"))
+        forge = f"import os\nos.symlink({str(elsewhere)!r}, 'metrics.json')\nos._exit(0)\n"
+        await agent.call("write", path="program.py", content=forge)
+        await agent.call("commit", description="linked metrics")
+        forge = (
+            "import os\nopen('error.json', 'w').write('{\"frames\": [null, []]}')\nos._exit(1)\n"
+        )
+        await agent.call("write", path="program.py", content=forge)
+        await agent.call("commit", description="forged error")
+
+    run_dir = await run_task(scenario, max_commits=2)
+
+    truncated = "stdout:\n" + "x" * 10_000 + "\n... (truncated, 1000000 bytes total)\n"
+    assert outputs[0].startswith(truncated)
+    linked, forged = archive_records(run_dir)
+    assert linked["error"] == "invalid metrics file: metrics.json is not a regular file"
+    assert forged["error"] == "evaluator exited with code 1"

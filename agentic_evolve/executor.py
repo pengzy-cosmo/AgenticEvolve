@@ -6,21 +6,24 @@ permissions, including access to private evaluator inputs.
 
 Analysis output is returned to the model. Evaluation failures return a summary
 of the runner's exception record, keeping raw stdout and stderr in the archive.
-Each output stream is truncated to output_limit before storage or feedback.
+Each output stream retains up to output_limit bytes; the rest is discarded.
 """
 
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from agentic_evolve.config import ExecutorConfig, TaskConfig
 
@@ -29,6 +32,7 @@ logger = logging.getLogger(__name__)
 _RUNNER_PATH = Path(__file__).parent / "_eval_runner.py"
 METRICS_FILENAME = "metrics.json"
 ERROR_FILENAME = "error.json"
+_RESULT_LIMIT = 1_000_000  # bytes
 # -E ignores PYTHON* variables, -s skips the user site-packages directory.
 _INTERPRETER = [sys.executable, "-E", "-s"]
 
@@ -101,17 +105,18 @@ class Executor:
                 )
             output = f"stdout:\n{out}\nstderr:\n{err}"
             if code != 0:
-                if error_path.exists():
-                    raise EvaluationError(
-                        self._summary(json.loads(error_path.read_text()), tmp), output=output
-                    )
-                raise EvaluationError(f"evaluator exited with code {code}", output=output)
-            if not metrics_path.exists():
-                raise EvaluationError("evaluator wrote no metrics file", output=output)
+                # A missing or malformed record leaves only the exit code.
+                try:
+                    summary = self._summary(_read_result(error_path), tmp)
+                except Exception:
+                    summary = f"evaluator exited with code {code}"
+                raise EvaluationError(summary, output=output)
             try:
-                metrics = json.loads(metrics_path.read_text())
-            except json.JSONDecodeError as exc:
-                raise EvaluationError(f"metrics file is not valid JSON: {exc}") from exc
+                metrics = _read_result(metrics_path)
+            except FileNotFoundError:
+                raise EvaluationError("evaluator wrote no metrics file", output=output) from None
+            except (OSError, ValueError) as exc:
+                raise EvaluationError(f"invalid metrics file: {exc}", output=output) from exc
             if not isinstance(metrics, dict):
                 raise EvaluationError(
                     f"metrics must be a JSON object, got {type(metrics).__name__}"
@@ -127,7 +132,7 @@ class Executor:
     async def _run(
         self, cmd: list[str], cwd: Path, *, evaluation: bool = False
     ) -> tuple[int | None, str, str, bool]:
-        """Run with a restricted environment and clean up on timeout or cancellation."""
+        """Run with a restricted environment and clean up the process group on exit."""
 
         env = {"PATH": os.environ.get("PATH", os.defpath)}
         env |= {key: str(cwd) for key in ("HOME", "TMPDIR", "TMP", "TEMP")}
@@ -151,23 +156,33 @@ class Executor:
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
+        assert proc.stdout is not None and proc.stderr is not None
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), self.cfg.timeout)
+            out, err, code = await asyncio.wait_for(
+                asyncio.gather(self._drain(proc.stdout), self._drain(proc.stderr), proc.wait()),
+                self.cfg.timeout,
+            )
         except TimeoutError:
-            await self._kill_group(proc)
             return None, "", "", True
-        except asyncio.CancelledError:
+        finally:
+            # Also after a normal exit, for background processes left in the group.
             await self._kill_group(proc)
-            raise
-        return (
-            proc.returncode,
-            self._truncate(out.decode(errors="replace")),
-            self._truncate(err.decode(errors="replace")),
-            False,
-        )
+        return code, out, err, False
+
+    async def _drain(self, stream: asyncio.StreamReader) -> str:
+        """Read the stream to its end, keeping its first output_limit bytes."""
+
+        kept, total = bytearray(), 0
+        while chunk := await stream.read(1 << 16):
+            total += len(chunk)
+            kept += chunk[: self.cfg.output_limit - len(kept)]
+        text = kept.decode(errors="replace")
+        if total > len(kept):
+            text += f"\n... (truncated, {total} bytes total)"
+        return text
 
     def _sandboxed(self, cmd: list[str], cwd: Path, evaluation: bool) -> list[str]:
-        """Wrap cmd in the platform sandbox; cwd is the only writable location."""
+        """Wrap cmd in the platform sandbox."""
 
         readable = [Path(sys.prefix), Path(sys.base_prefix), _RUNNER_PATH.parent, cwd]
         if (home := _venv_home(Path(sys.prefix))) is not None:
@@ -178,7 +193,8 @@ class Executor:
             import pwd
 
             home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
-            hidden = [home, self.run_dir, self.evaluator_path.parent]
+            # The temporary root holds the other executions' directories.
+            hidden = [home, self.run_dir, self.evaluator_path.parent, Path(tempfile.gettempdir())]
             return ["sandbox-exec", "-p", _seatbelt_profile(readable, cwd, hidden), *cmd]
         return [*_bwrap_args(readable, cwd), *cmd]
 
@@ -209,11 +225,6 @@ class Executor:
         path, line = program[-1]
         return f"{name} at {Path(path).name} line {line}"
 
-    def _truncate(self, text: str) -> str:
-        if len(text) <= self.cfg.output_limit:
-            return text
-        return text[: self.cfg.output_limit] + f"\n... (truncated, {len(text)} chars total)"
-
     @staticmethod
     async def _kill_group(proc: asyncio.subprocess.Process) -> None:
         # On POSIX, start_new_session=True makes the child's PID its process group ID.
@@ -226,6 +237,26 @@ class Executor:
         except ProcessLookupError:
             pass
         await proc.wait()
+
+
+def _read_result(path: Path) -> Any:
+    """Read bounded JSON from a regular file without following symlinks."""
+
+    # O_NONBLOCK lets fstat reject a FIFO without waiting for a writer.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno != errno.ELOOP:
+            raise
+        raise ValueError(f"{path.name} is not a regular file") from None
+    with open(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f"{path.name} is not a regular file")
+        data = f.read(_RESULT_LIMIT + 1)
+    if len(data) > _RESULT_LIMIT:
+        raise ValueError(f"{path.name} exceeds {_RESULT_LIMIT} bytes")
+    return json.loads(data)
 
 
 def _select_sandbox(mode: str) -> str | None:
@@ -296,11 +327,13 @@ def _seatbelt_profile(readable: list[Path], writable: Path, hidden: list[Path]) 
             "(version 1)",
             "(allow default)",
             "(deny network*)",
+            "(deny signal)",
+            "(allow signal (target same-sandbox))",
             f"(deny file-read* {subpaths(hidden)})",
             "(allow file-read-metadata)",
             f"(allow file-read* {subpaths(readable)})",
             "(deny file-write*)",
-            f"(allow file-write* {subpaths([writable])})",
+            f'(allow file-write* {subpaths([writable])} (literal "/dev/null"))',
         ]
     )
 
