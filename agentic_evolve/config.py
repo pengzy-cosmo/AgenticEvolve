@@ -30,13 +30,13 @@ class LLMConfig:
 @dataclass
 class EvolutionConfig:
     num_islands: int = 3
-    max_commits: int = 30
+    max_commits: int = 10
     max_analyses_per_commit: int = 10
     migration_interval: int = 3
     migration_rate: float = 0.3
     max_total_tokens: int | None = None
     max_requests: int | None = None
-    max_idle_turns: int = 5
+    max_idle_turns: int = 3
 
     def __post_init__(self) -> None:
         if self.max_analyses_per_commit < 0:

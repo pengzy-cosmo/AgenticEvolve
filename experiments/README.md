@@ -12,11 +12,13 @@ entries:
   obp-full:
     system: agentic_evolve
     config: examples/online_bin_packing/config.yaml
+    override:
+      evolution: {num_islands: 3, max_commits: 30}
   obp-no-analysis:
     system: agentic_evolve
     config: examples/online_bin_packing/config.yaml
     override:
-      evolution: {max_analyses_per_commit: 0}
+      evolution: {num_islands: 3, max_commits: 30, max_analyses_per_commit: 0}
   obp-openevolve:
     system: openevolve
     task: examples/online_bin_packing

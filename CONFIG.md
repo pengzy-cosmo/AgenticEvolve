@@ -23,7 +23,7 @@ llm:
 
 evolution:
   num_islands: 3                       # independent sessions evolving in parallel
-  max_commits: 30                      # formal evaluations per island; the run ends
+  max_commits: 10                      # formal evaluations per island; the run ends
                                        # when every island has spent them
   max_analyses_per_commit: 10          # run_analysis calls allowed between commits;
                                        # 0 removes the analysis capability entirely
@@ -33,7 +33,7 @@ evolution:
   # max_requests: 333                  # optional hard stop per island on model requests
                                        # (every response counts); the response that
                                        # reaches it still runs its tool calls
-  max_idle_turns: 5                    # stop per island after this many consecutive
+  max_idle_turns: 3                    # stop per island after this many consecutive
                                        # turns without a tool call
 
 map_elites:
