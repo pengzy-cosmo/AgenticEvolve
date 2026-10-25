@@ -1,0 +1,27 @@
+task:
+  initial_program: initial_program.py
+  evaluator: evaluator.py
+  description: |
+    Improve pack() in program.py: place 26 circles inside the unit square,
+    without overlaps, to maximize the sum of their radii.
+
+    pack() takes no arguments and returns (centers, radii), numpy arrays of
+    shape (26, 2) and (26,). Every circle must lie inside the square and no
+    two may overlap, up to a tolerance of 1e-9; otherwise the evaluation
+    fails. pack() may run a numerical optimization; seed any randomness so
+    the result is reproducible.
+
+    Metrics:
+    - sum_radii: the sum of the radii, the fitness.
+    - radius_gini: Gini coefficient of the radii, 0 when all circles have
+      the same size and larger as their sizes vary.
+
+llm:
+  model: deepseek-flash
+
+map_elites:
+  fitness: sum_radii
+  features: [radius_gini]
+
+executor:
+  timeout: 60

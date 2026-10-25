@@ -1,7 +1,6 @@
 """Evaluator: trace the candidate into an expression (expression.py), check it,
-fit its parameters on the training observations and score the fit. Shared by
-every method: Full's evaluation, the LLM-SR baseline's sandbox (run_llmsr.py)
-and the final scoring (score.py).
+fit its parameters on the training observations and score the fit. The
+LLM-SRBench experiments (experiments/llm_srbench) use it for every method.
 
 The fit is scipy least_squares on the 10 params from all ones. LLM-SR minimizes
 the mean squared error with BFGS instead; on CRK21 that fit stops at train NMSE

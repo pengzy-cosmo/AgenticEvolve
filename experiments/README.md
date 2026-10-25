@@ -23,7 +23,7 @@ entries:
     iterations: 180
 ```
 
-`symbolic_regression.yaml`: the LLM-SRBench comparison (`examples/llm_srbench`). A matrix with a `problems` list is expanded first: every entry becomes one entry per problem, named `<entry>-<problem>`, with `{problem}` substituted in its string values; the expanded entries are ordered by problem, so the methods interleave. The systems are agentic_evolve on the generated task directories, `llmsr` with a sample count, `srscientist` and `pysr`; their seed is the repeat number. The LLM-SR and SR-Scientist runners exit non-zero when a request failed all its retries, so a run hit by an outage is recorded as failed and relaunched with `--retry-failed`; its results stay on disk.
+`symbolic_regression.yaml`: the LLM-SRBench comparison (`experiments/llm_srbench`). A matrix with a `problems` list is expanded first: every entry becomes one entry per problem, named `<entry>-<problem>`, with `{problem}` substituted in its string values; the expanded entries are ordered by problem, so the methods interleave. The systems are agentic_evolve on the generated task directories, `llmsr` with a sample count, `srscientist` and `pysr`; their seed is the repeat number. The LLM-SR and SR-Scientist runners exit non-zero when a request failed all its retries, so a run hit by an outage is recorded as failed and relaunched with `--retry-failed`; its results stay on disk.
 
 ```yaml
 repeats: 1
@@ -31,7 +31,7 @@ problems: [CRK21, CRK35, BPG18]
 entries:
   full:
     system: agentic_evolve
-    config: examples/llm_srbench/tasks/{problem}/config.yaml
+    config: experiments/llm_srbench/tasks/{problem}/config.yaml
   llmsr: {system: llmsr, samples: 1000}
   srscientist: {system: srscientist}
   pysr: {system: pysr}
@@ -65,7 +65,7 @@ uv run scripts/bench.py experiments/symbolic_regression.yaml --llm ~/deepseek.ya
     --llmsr-repo ~/llm-srbench --srscientist-repo ~/SR-Scientist
 ```
 
-The symbolic regression matrix needs the task directories (`uv run examples/llm_srbench/make_tasks.py`) and the two baseline repositories at the commits named in `run_llmsr.py` and `run_srscientist.py`; PySR installs its Julia dependencies on first use.
+The symbolic regression matrix needs the task directories (`uv run experiments/llm_srbench/make_tasks.py`) and the two baseline repositories at the commits named in `run_llmsr.py` and `run_srscientist.py`; PySR installs its Julia dependencies on first use.
 
 Results go to `runs/heuristics-deepseek/` (`runs/<matrix stem>-<llm stem>`, or `--runs-dir`). Pairs launch interleaved: repeat 1 of every entry, then repeat 2, and so on. Each pair has its own directory:
 
@@ -90,8 +90,8 @@ Reads run directories of both systems and plots best-so-far fitness against form
 
 ## OpenEvolve driver
 
-`examples/openevolve/run.py` runs OpenEvolve 0.3.2 on a task directory: the task description becomes the system message, evaluations go through the same subprocess executor, requests are logged with their usage. The task's `openevolve.yaml` holds the model-independent settings. For direct use, `--llm` takes a YAML file containing only the fields inside the `openevolve` block above, without the block wrapper. `bench.py` writes this file automatically.
+`experiments/openevolve/run.py` runs OpenEvolve 0.3.2 on a task directory: the task description becomes the system message, evaluations go through the same subprocess executor, requests are logged with their usage. The task's `openevolve.yaml` holds the model-independent settings. For direct use, `--llm` takes a YAML file containing only the fields inside the `openevolve` block above, without the block wrapper. `bench.py` writes this file automatically.
 
 ```bash
-uv run --group openevolve examples/openevolve/run.py --task examples/online_bin_packing --llm llm.yaml --iterations 180 --seed 0
+uv run --group openevolve experiments/openevolve/run.py --task examples/online_bin_packing --llm llm.yaml --iterations 180 --seed 0
 ```

@@ -956,7 +956,7 @@ wheels = [
 name = "python-agentic-evolve"
 version = "0.3.0"
 source = { editable = "." }
-default-groups = ["dev", "llm-srbench"]
+default-groups = ["dev", "symbolic-regression"]
 dependencies = [
     { name = "mycode-sdk" },
     { name = "numpy" },
@@ -971,11 +971,11 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
-llm-srbench = [
-    { name = "sympy" },
-]
 openevolve = [
     { name = "openevolve" },
+]
+symbolic-regression = [
+    { name = "sympy" },
 ]
 
 [package.metadata]
@@ -993,8 +993,8 @@ dev = [
     { name = "ruff", specifier = ">=0.16.1" },
     { name = "ty", specifier = ">=0.0.65" },
 ]
-llm-srbench = [{ name = "sympy", specifier = ">=1.14.0" }]
 openevolve = [{ name = "openevolve", specifier = "==0.3.2" }]
+symbolic-regression = [{ name = "sympy", specifier = ">=1.14.0" }]
 
 [[package]]
 name = "pyyaml"

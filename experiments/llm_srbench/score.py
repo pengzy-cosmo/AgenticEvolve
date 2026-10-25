@@ -23,7 +23,7 @@ SR-Scientist's 5% allowance). The traced expression and, per top-level
 summand, its largest training-set magnitude relative to the target's standard
 deviation are printed for the structure check against the truth.
 
-Usage: uv run examples/llm_srbench/score.py PROBLEM RUN_DIR_OR_PROGRAM.py ...
+Usage: uv run experiments/llm_srbench/score.py PROBLEM RUN_DIR_OR_PROGRAM.py ...
 Prints CSV: run,id,size,split,nmse,acc_0.01,acc_0.001,error,expression,terms
 with split in train, id, ood; candidates.csv holds every candidate's size,
 train nmse, front membership, score, fitted params and whether it was
@@ -41,7 +41,9 @@ import numpy as np
 import sympy as sp
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+# The evaluation protocol (evaluator.py, expression.py) is the symbolic regression example's.
+PROTOCOL = HERE.parents[1] / "examples/symbolic_regression"
+sys.path[:0] = [str(HERE), str(PROTOCOL)]
 from dataset import problems  # noqa: E402
 from evaluator import fit  # noqa: E402
 from expression import check, compile, load, size, trace  # noqa: E402

@@ -1,7 +1,7 @@
 """Run OpenEvolve on one of our example tasks.
 
 Usage:
-    uv run --group openevolve examples/openevolve/run.py --task examples/online_bin_packing \
+    uv run --group openevolve experiments/openevolve/run.py --task examples/online_bin_packing \
         --llm llm.yaml --iterations 180 --seed 0 [--runs-dir runs/openevolve]
 
 The task directory holds config.yaml (task description, evaluator, initial

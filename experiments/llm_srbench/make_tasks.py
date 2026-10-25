@@ -6,14 +6,15 @@
 """Generate one task directory per LSR-Synth problem of LLM-SRBench.
 
 tasks/<name>/ receives config.yaml, initial_program.py (LLM-SR's linear
-skeleton), copies of evaluator.py and expression.py, and data/train.csv with the 4000 training
+skeleton), copies of evaluator.py and expression.py from
+examples/symbolic_regression, and data/train.csv with the 4000 training
 observations, target column first. The test sets stay in the dataset; score.py
 reads them from there. The generated directories are not tracked.
 
 The description gives the model what LLM-SR's prompt gives: the target and
 input variables with their meanings, plus how the evaluator fits and scores.
 
-Usage: uv run examples/llm_srbench/make_tasks.py [--out DIR]
+Usage: uv run experiments/llm_srbench/make_tasks.py [--out DIR]
 """
 
 import argparse
@@ -26,7 +27,9 @@ import numpy as np
 import yaml
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+# The evaluation protocol (evaluator.py, expression.py) is the symbolic regression example's.
+PROTOCOL = HERE.parents[1] / "examples/symbolic_regression"
+sys.path[:0] = [str(HERE), str(PROTOCOL)]
 from dataset import Problem, problems  # noqa: E402
 from expression import MAX_SIZE, RULE  # noqa: E402
 
@@ -114,7 +117,7 @@ def main():
         )
         (task / "initial_program.py").write_text(_initial_program(p))
         for name in ("evaluator.py", "expression.py"):
-            shutil.copy(HERE / name, task / name)
+            shutil.copy(PROTOCOL / name, task / name)
         config = {
             "task": {
                 "initial_program": "initial_program.py",

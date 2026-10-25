@@ -26,7 +26,7 @@ dev = [
     "ruff>=0.16.1",
     "ty>=0.0.65",
 ]
-llm-srbench = [
+symbolic-regression = [
     "sympy>=1.14.0",
 ]
 openevolve = [
@@ -34,7 +34,7 @@ openevolve = [
 ]
 
 [tool.uv]
-default-groups = ["dev", "llm-srbench"]
+default-groups = ["dev", "symbolic-regression"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentic_evolve"]

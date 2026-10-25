@@ -13,7 +13,7 @@ A problem is selected when, within its domain:
 3. the structure is identifiable: with any one basis function of the expanded
    ground truth removed, the refit's train NMSE stays above 1e-3.
 
-Usage: uv run examples/llm_srbench/select.py   (minutes: the refits)
+Usage: uv run experiments/llm_srbench/select.py   (minutes: the refits)
 """
 
 import re

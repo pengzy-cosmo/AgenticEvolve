@@ -7,7 +7,7 @@
 
 Reads run directories of both systems: ours (archive.jsonl + sessions/) and
 OpenEvolve comparison runs (evals/ + usage/ as written by
-examples/openevolve/run.py). Two panels: best-so-far
+experiments/openevolve/run.py). Two panels: best-so-far
 fitness against the number of formal evaluator calls (the initial program is
 evaluation 1), and against cumulative estimated LLM cost. Failed evaluations
 advance the evaluation axis without changing best-so-far.

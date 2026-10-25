@@ -39,7 +39,16 @@ openevolve.yaml     optional OpenEvolve settings for the comparison driver
 
 The description defines the task: state the function interface, execution rules, evaluation protocol, and meaning of each metric. Use `task.resources` for public files. They are listed in the system prompt, available through `read`, and copied into each analysis and evaluation directory. Python modules in that directory can be imported by the candidate program. The original resources are read-only through the tools; changes to execution copies are discarded after each run.
 
-Keep private evaluator inputs, such as hidden instances and reference values, beside the evaluator and outside the resources directory. See [examples/](examples/) for task examples.
+Keep private evaluator inputs, such as hidden instances and reference values, beside the evaluator and outside the resources directory.
+
+## Examples
+
+| Example | Task |
+|---|---|
+| [circle_packing](examples/circle_packing) | 26 circles in the unit square, maximizing the sum of radii. The minimal task directory. |
+| [online_bin_packing](examples/online_bin_packing) | A priority rule for online bin packing, in FunSearch's setting. |
+| [dynamic_job_shop](examples/dynamic_job_shop) | A dispatching rule for a dynamic job shop, against a published rule. |
+| [symbolic_regression](examples/symbolic_regression) | The equation behind an oscillator's data, under the LLM-SRBench protocol. |
 
 ## Run directory
 

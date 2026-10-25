@@ -1,0 +1,41 @@
+task:
+  initial_program: initial_program.py
+  evaluator: evaluator.py
+  resources: data
+  description: |
+    Find the mathematical function skeleton that represents Acceleration in a driven nonlinear oscillator, given data on Position at time t, Time, and Velocity at time t.
+
+    Complete equation(x, t, v, params) in program.py. The inputs are numpy
+    arrays of observations (x: Position at time t; t: Time; v: Velocity at time t),
+    params is a numpy array of 10 numeric constants. Return a numpy array with
+    one value of Acceleration in a driven nonlinear oscillator per observation.
+
+    The 1000 observations have columns dv_dt, x, t, v, the target first;
+    with the analysis tool they are in data/train.csv.
+
+    The formal evaluation fits params on these observations by least squares from
+    all ones and reports mse and nmse (mse / variance of the target);
+    combined_score = -nmse is the fitness, complexity = nodes / 30. A non-finite
+    mse fails the evaluation.
+
+    The evaluation traces equation into a single expression by running it on
+    symbolic inputs and params, so the body must be a plain formula: + - * / and
+    powers, np.exp, np.log, np.sqrt, np.sin, np.cos, np.abs, np.maximum, np.minimum
+    and np.where; other functions and data-dependent branches fail. At most 30
+    nodes, every operator, input, params entry and numeric constant counting one, as
+    written: an intermediate variable is counted at every use, and a literal
+    constant costs the same node as a params entry. Larger expressions fail the
+    evaluation. The program may import numpy and math only.
+
+llm:
+  model: deepseek-flash
+
+evolution:
+  num_islands: 1
+  max_commits: 5
+
+map_elites:
+  features: [complexity]
+
+executor:
+  timeout: 30

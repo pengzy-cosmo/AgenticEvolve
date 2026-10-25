@@ -1,6 +1,6 @@
 # OpenEvolve side of the online bin packing task.
 #
-# The driver (examples/openevolve/run.py) completes this at launch: the model
+# The driver (experiments/openevolve/run.py) completes this at launch: the model
 # (--llm), the task description from ../config.yaml as the system message,
 # our LLM client, the random seed, and the iteration budget. Everything not set
 # here uses OpenEvolve's defaults.

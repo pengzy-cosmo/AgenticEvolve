@@ -39,7 +39,7 @@ The searcher sees training data only; score.py scores its candidates. It has
 no random source: the seed is recorded only.
 
 Usage:
-    uv run examples/llm_srbench/run_srscientist.py --problem CRK21 --llm llm.yaml --seed 1
+    uv run experiments/llm_srbench/run_srscientist.py --problem CRK21 --llm llm.yaml --seed 1
         --srscientist-repo REPO [--turns 40] [--assistant-turns 25] [--runs-dir runs/srscientist]
 
 The run directory receives run.json (written at the start, completed at the
@@ -74,7 +74,9 @@ import pandas as pd
 import yaml
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+# The evaluation protocol (evaluator.py, expression.py) is the symbolic regression example's.
+PROTOCOL = HERE.parents[1] / "examples/symbolic_regression"
+sys.path[:0] = [str(HERE), str(PROTOCOL)]
 from client import record
 from dataset import problems
 from expression import MAX_SIZE, RULE
@@ -89,7 +91,7 @@ EVALUATOR_DESCRIPTION = (
 )
 EVALUATE = f"""
 import json, sys
-sys.path.insert(0, {str(HERE)!r})
+sys.path.insert(0, {str(PROTOCOL)!r})
 import numpy as np
 from evaluator import fit
 from expression import check, compile, load, size, trace

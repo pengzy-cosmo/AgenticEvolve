@@ -29,7 +29,7 @@ The model file has the OpenEvolve layout (model, api_base, api_key_env,
 max_tokens, max_tokens_field, optional reasoning_effort).
 
 Usage:
-    uv run examples/llm_srbench/run_llmsr.py --problem CRK21 --llm llm.yaml --samples 1000
+    uv run experiments/llm_srbench/run_llmsr.py --problem CRK21 --llm llm.yaml --samples 1000
         --seed 1 --llmsr-repo REPO [--runs-dir runs/llmsr]
 
 The run directory receives run.json, usage.jsonl (one record per request),
@@ -60,7 +60,9 @@ import openai
 import yaml
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+# The evaluation protocol (evaluator.py, expression.py) is the symbolic regression example's.
+PROTOCOL = HERE.parents[1] / "examples/symbolic_regression"
+sys.path[:0] = [str(HERE), str(PROTOCOL)]
 from client import record
 from dataset import problems
 from evaluator import fit

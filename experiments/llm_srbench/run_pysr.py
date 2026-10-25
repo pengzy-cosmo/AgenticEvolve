@@ -14,7 +14,7 @@ The run directory receives equations.csv, PySR's Pareto front with its own
 fitted constants, from which score.py selects and scores the final equation
 under the shared count and rules, and run.json.
 
-Usage: uv run examples/llm_srbench/run_pysr.py --problem CRK21 --seed 1 [--runs-dir runs/pysr]
+Usage: uv run experiments/llm_srbench/run_pysr.py --problem CRK21 --seed 1 [--runs-dir runs/pysr]
 """
 
 import argparse

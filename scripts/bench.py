@@ -29,7 +29,7 @@ A matrix with a `problems` list is expanded before anything else: every entry
 becomes one entry per problem, named <entry>-<problem>, with {problem}
 substituted in its string values and the problem recorded; the expanded
 entries are ordered by problem, so a launch interleaves the methods. The
-systems for the LLM-SRBench problems (examples/llm_srbench) are llmsr (with
+systems for the LLM-SRBench problems (experiments/llm_srbench) are llmsr (with
 `samples`), srscientist and pysr; the first two need the repositories their
 runners use, given by --llmsr-repo and --srscientist-repo:
 
@@ -38,7 +38,7 @@ runners use, given by --llmsr-repo and --srscientist-repo:
     entries:
       full:
         system: agentic_evolve
-        config: examples/llm_srbench/tasks/{problem}/config.yaml
+        config: experiments/llm_srbench/tasks/{problem}/config.yaml
       llmsr: {system: llmsr, samples: 1000}
       srscientist: {system: srscientist}
       pysr: {system: pysr}
@@ -85,7 +85,7 @@ from pathlib import Path
 
 import yaml
 
-SRBENCH = "examples/llm_srbench"
+SRBENCH = "experiments/llm_srbench"
 
 
 def git(*args: str) -> str | None:
@@ -115,7 +115,7 @@ def command(entry: dict, pair_dir: Path, repeat: int, repos: dict) -> list[str]:
         cmd += ["--override", str(pair_dir / "override.yaml"), "--runs-dir", str(pair_dir)]
         return cmd
     if system == "openevolve":
-        cmd = ["uv", "run", "--group", "openevolve", "examples/openevolve/run.py"]
+        cmd = ["uv", "run", "--group", "openevolve", "experiments/openevolve/run.py"]
         cmd += ["--task", entry["task"], "--llm", str(pair_dir / "llm.yaml")]
         cmd += ["--iterations", str(entry["iterations"]), "--seed", str(repeat)]
         cmd += ["--runs-dir", str(pair_dir)]
