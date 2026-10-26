@@ -1,8 +1,14 @@
 # AgenticEvolve
 
-Agentic LLM evolution: each island is one persistent LLM session that evolves a Python program through six controlled tools (`read`, `write`, `edit`, `run_analysis`, `commit`, `read_commit`). The framework owns evaluation, the archive, per-island MAP-Elites, migration, and context compaction; the LLM decides what to change and when to commit.
+Evolutionary program search with persistent LLM agents.
 
-## Install
+Paper: [arXiv:2610.31326](https://arxiv.org/abs/2610.31326)
+
+![Architecture](docs/architecture.png)
+
+Each island is run by one LLM session that persists for the whole search. Between commits, the agent can run its own analysis scripts; only committed programs are formally evaluated. Every commit is recorded in an archive with a MAP-Elites grid per island, and islands receive elites from their ring neighbors through migration.
+
+## Installation
 
 Python 3.12+ and `uv`.
 
@@ -10,23 +16,31 @@ Python 3.12+ and `uv`.
 uv sync
 ```
 
-## Run
+## Quick start
 
 ```bash
 export DEEPSEEK_API_KEY=...
 uv run agentic-evolve examples/online_bin_packing/config.yaml
 ```
 
-Override any setting with a second YAML file. Dictionaries merge, other values replace.
+`--override` merges a second YAML file over the config: dictionaries merge, other values replace.
 
 ```bash
-printf 'evolution: {num_islands: 1, max_commits: 3}\n' > smoke.yaml
-uv run agentic-evolve examples/online_bin_packing/config.yaml --override smoke.yaml --runs-dir runs/smoke
+uv run agentic-evolve examples/online_bin_packing/config.yaml --override override.yaml
 ```
 
 Settings and defaults: [CONFIG.md](CONFIG.md).
 
-## Task directory
+## Examples
+
+| Example | Task |
+|---|---|
+| [circle_packing](examples/circle_packing) | 26 circles in the unit square, maximizing the sum of radii. The minimal task directory. |
+| [online_bin_packing](examples/online_bin_packing) | A priority rule for online bin packing, in FunSearch's setting. |
+| [dynamic_job_shop](examples/dynamic_job_shop) | A dispatching rule for a dynamic job shop, against a published rule. |
+| [symbolic_regression](examples/symbolic_regression) | The equation behind an oscillator's data, under the LLM-SRBench protocol. |
+
+## Defining a task
 
 ```
 config.yaml         description, paths, settings
@@ -37,18 +51,9 @@ resources/          optional public data, solver code, and notes
 openevolve.yaml     optional OpenEvolve settings for the comparison driver
 ```
 
-The description defines the task: state the function interface, execution rules, evaluation protocol, and meaning of each metric. Use `task.resources` for public files. They are listed in the system prompt, available through `read`, and copied into each analysis and evaluation directory. Python modules in that directory can be imported by the candidate program. The original resources are read-only through the tools; changes to execution copies are discarded after each run.
+`task.description` defines the task: state the function interface, execution rules, evaluation protocol, and meaning of each metric. Use `task.resources` for public files. They are listed in the system prompt, available through the `read` tool, and copied into each analysis and evaluation directory. The candidate program can import Python modules from `resources/`. The original files are read-only; changes to execution copies are discarded after each execution.
 
 Keep private evaluator inputs, such as hidden instances and reference values, beside the evaluator and outside the resources directory.
-
-## Examples
-
-| Example | Task |
-|---|---|
-| [circle_packing](examples/circle_packing) | 26 circles in the unit square, maximizing the sum of radii. The minimal task directory. |
-| [online_bin_packing](examples/online_bin_packing) | A priority rule for online bin packing, in FunSearch's setting. |
-| [dynamic_job_shop](examples/dynamic_job_shop) | A dispatching rule for a dynamic job shop, against a published rule. |
-| [symbolic_regression](examples/symbolic_regression) | The equation behind an oscillator's data, under the LLM-SRBench protocol. |
 
 ## Run directory
 
@@ -69,7 +74,26 @@ Runs store token counts. Cost is estimated at plot time from the mycode model ca
 ## Notes
 
 - OS sandboxing uses the built-in `sandbox-exec` on macOS and requires `bubblewrap` with unprivileged user namespaces on Linux. Windows runs without an OS sandbox. See [CONFIG.md](CONFIG.md) for sandbox settings.
-- For comparison runs against OpenEvolve and experiment matrices, see [experiments/README.md](experiments/README.md).
+- For the paper's experiment matrices and baseline runners, see [experiments/README.md](experiments/README.md).
+
+## Citation
+
+The experiments in the paper used tags `v0.1.0` to `v0.2.1`. Their source and run records are archived on [Zenodo](https://doi.org/10.5281/zenodo.23561528).
+
+```bibtex
+@misc{peng2026agenticevolve,
+  title         = {AgenticEvolve: Evolutionary Program Search with Persistent Language Model Agents that Design and Run Experiments},
+  author        = {Peng, Ze-Yu and Lan, Qing-Yu and Wang, Zhan-He and Zhang, Jun and Piao, Yun-Song},
+  year          = {2026},
+  eprint        = {2610.31326},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.NE},
+}
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 ## Development
 
